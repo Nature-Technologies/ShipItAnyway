@@ -11,7 +11,7 @@ Thanks for helping improve ShipItAnyway.
 ## Development
 
 ```bash
-npm install
+pnpm install
 docker compose up --build
 ```
 
@@ -24,8 +24,8 @@ For local frontend iteration, use Vite on `http://localhost:5173`.
 - Run type-checking before opening a PR:
 
 ```bash
-npm exec -w backend tsc -- --noEmit -p tsconfig.json
-npm exec -w frontend tsc -- --noEmit -p tsconfig.json
+pnpm --filter backend exec tsc --noEmit -p tsconfig.json
+pnpm --filter frontend exec tsc --noEmit -p tsconfig.json
 ```
 
 ## Reporting issues

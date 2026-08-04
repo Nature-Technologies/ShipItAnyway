@@ -13,12 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
-      - run: npm exec -w backend prisma generate
-      - run: npm exec -w backend tsc -- --noEmit -p tsconfig.json
-      - run: npm exec -w frontend tsc -- --noEmit -p tsconfig.json
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter backend exec prisma generate
+      - run: pnpm --filter backend exec tsc --noEmit -p tsconfig.json
+      - run: pnpm --filter frontend exec tsc --noEmit -p tsconfig.json

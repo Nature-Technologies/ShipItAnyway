@@ -54,9 +54,9 @@ Use this for fast iteration on macOS:
 1. Copy `.env.example` to `.env`
 2. Set `FRONTEND_PORT=5173` for local Vite dev
 3. Make sure PostgreSQL 16 and Redis 7 are running locally
-4. Run `npm install` in the repo root
+4. Run `pnpm install` in the repo root
 5. Run Prisma migration and seed from `backend`
-6. Run `npm run dev`
+6. Run `pnpm dev`
 7. Verify `http://localhost:5173`
 8. Verify `http://localhost:3000/health`
 9. Verify `http://localhost:3000/health/db`

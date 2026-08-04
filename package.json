@@ -3,16 +3,12 @@
   "version": "0.2.0",
   "description": "Low-code UI test automation platform powered by Playwright",
   "private": true,
-  "packageManager": "npm@10.9.3",
+  "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee",
   "homepage": "https://shipitanyway.com",
   "repository": {
     "type": "git",
     "url": "https://github.com/Nature-Technologies/ShipItAnyway.git"
   },
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
   "scripts": {
     "setup": "node scripts/setup-playwright.mjs",
     "dev": "turbo run dev",

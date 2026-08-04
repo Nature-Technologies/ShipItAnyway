@@ -168,19 +168,19 @@ cd shipitanyway
 cp .env.example .env
 # Edit DATABASE_URL for local PostgreSQL
 
-npm install
-npm run setup
-cd backend && npx prisma migrate dev && npx prisma db seed && cd ..
-npm run dev
+pnpm install
+pnpm run setup
+cd backend && pnpm exec prisma migrate dev && pnpm exec prisma db seed && cd ..
+pnpm dev
 ```
 
-`npm install` now runs a Playwright bootstrap step for Chromium and WebKit. On Ubuntu/Linux
+`pnpm install` now runs a Playwright bootstrap step for Chromium and WebKit. On Ubuntu/Linux
 it will also try to install system dependencies when the terminal session allows
 it. If Playwright still cannot launch Chromium or mobile recording needs WebKit,
 run the same bootstrap manually and then install Linux deps:
 
 ```bash
-npm run setup
+pnpm run setup
 npx playwright install chromium webkit
 sudo npx playwright install-deps chromium webkit
 ```
@@ -190,7 +190,7 @@ sudo npx playwright install-deps chromium webkit
 | Frontend | http://localhost:5173 |
 | Backend | http://localhost:3000 |
 
-If the host environment still reports missing Playwright libraries, rerun `npm run setup` once from the repo root. On Ubuntu/Linux this may fall back to `npx playwright install-deps chromium webkit` when needed.
+If the host environment still reports missing Playwright libraries, rerun `pnpm run setup` once from the repo root. On Ubuntu/Linux this may fall back to `npx playwright install-deps chromium webkit` when needed.
 
 ## 🔄 Updating
 
@@ -327,7 +327,7 @@ The generated project includes:
 After extraction:
 
 ```bash
-npm install
+pnpm install
 npx playwright install
 npx playwright test
 ```
