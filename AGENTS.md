@@ -4,7 +4,7 @@ This file is the canonical starting point for coding agents and LLMs working on 
 
 ## What this project is
 
-WrightTest is a low-code Playwright testing platform:
+ShipItAnyway is a low-code Playwright testing platform:
 
 - Frontend: React + TypeScript + Vite + Ant Design
 - Backend: Fastify + TypeScript

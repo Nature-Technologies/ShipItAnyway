@@ -1,6 +1,6 @@
-# Contributing to WrightTest
+# Contributing to ShipItAnyway
 
-Thanks for helping improve WrightTest.
+Thanks for helping improve ShipItAnyway.
 
 ## Before you start
 

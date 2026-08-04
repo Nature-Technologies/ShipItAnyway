@@ -23,7 +23,7 @@ export async function webhookRoutes(fastify: FastifyInstance) {
   fastify.post('/webhooks/trigger', async (req, reply) => {
     const secret = process.env.WEBHOOK_SECRET;
     if (secret) {
-      const signatureHeader = req.headers['x-wrighttest-secret'];
+      const signatureHeader = req.headers['x-shipitanyway-secret'];
       const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
       const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
 

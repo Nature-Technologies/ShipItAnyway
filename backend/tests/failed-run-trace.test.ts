@@ -86,7 +86,7 @@ test('failed runs keep trace metadata and downloadable trace.zip', async () => {
     assert.ok((completed?.screenshots as string[]).length >= 1, 'expected at least one screenshot');
     assert.ok(Array.isArray(completed?.stepResults) && completed.stepResults.length >= 2, 'expected step results for each executed step');
     assert.ok(
-      completed?.stepResults?.some((stepResult: { status: string }) => stepResult.status === 'failed'),
+      completed?.stepResults?.some((stepResult: any) => stepResult.status === 'failed'),
       'expected failed step result to be stored'
     );
     assert.ok(completed?.tracePath, 'expected a trace zip path for failed run');

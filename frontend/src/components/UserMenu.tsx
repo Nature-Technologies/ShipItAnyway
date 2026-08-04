@@ -159,7 +159,7 @@ export default function UserMenu() {
               )
             },
             { type: 'divider' },
-            { key: 'about', icon: <InfoCircleOutlined />, label: 'About WrightTest' },
+            { key: 'about', icon: <InfoCircleOutlined />, label: 'About ShipItAnyway' },
             { key: 'release-notes', icon: <ProfileOutlined />, label: 'Release notes' },
             { key: 'change-password', icon: <UserOutlined />, label: 'Change password' },
             { type: 'divider' },
@@ -182,7 +182,7 @@ export default function UserMenu() {
       </Dropdown>
 
       <Modal
-        title="About WrightTest"
+        title="About ShipItAnyway"
         open={aboutOpen}
         onCancel={() => setAboutOpen(false)}
         footer={

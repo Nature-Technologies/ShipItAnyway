@@ -83,7 +83,7 @@ function getExpectedPlaceholder(action: StepAction) {
     case 'assertURL':
       return 'https://example.com/dashboard';
     case 'assertTitle':
-      return 'Dashboard | WrightTest';
+      return 'Dashboard | ShipItAnyway';
     case 'assertText':
       return 'Welcome back';
     case 'assertValue':

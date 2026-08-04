@@ -1,12 +1,12 @@
 {
-  "name": "wrighttest",
+  "name": "shipitanyway",
   "version": "0.2.0",
   "description": "Low-code UI test automation platform powered by Playwright",
   "private": true,
-  "homepage": "https://wrighttest.com",
+  "homepage": "https://shipitanyway.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AlexFilippov-it/wrighttest.git"
+    "url": "https://github.com/Nature-Technologies/ShipItAnyway.git"
   },
   "workspaces": [
     "frontend",

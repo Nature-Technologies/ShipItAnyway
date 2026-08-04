@@ -1,4 +1,4 @@
-# 🎭 WrightTest
+# 🎭 ShipItAnyway
 
 > Low-code UI test automation platform powered by Playwright.  
 > Create, record, and run browser tests through a web interface - no code required.
@@ -7,9 +7,9 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
 ![Playwright](https://img.shields.io/badge/Playwright-1.61-green)
 ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
-[![Stars](https://img.shields.io/github/stars/AlexFilippov-it/wrighttest?style=social)](https://github.com/AlexFilippov-it/wrighttest/stargazers)
-[![Last Commit](https://img.shields.io/github/last-commit/AlexFilippov-it/wrighttest)](https://github.com/AlexFilippov-it/wrighttest/commits/main)
-[![CI](https://github.com/AlexFilippov-it/wrighttest/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AlexFilippov-it/wrighttest/actions/workflows/ci.yml?query=branch%3Amain)
+[![Stars](https://img.shields.io/github/stars/Nature-Technologies/ShipItAnyway?style=social)](https://github.com/Nature-Technologies/ShipItAnyway/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/Nature-Technologies/ShipItAnyway)](https://github.com/Nature-Technologies/ShipItAnyway/commits/main)
+[![CI](https://github.com/Nature-Technologies/ShipItAnyway/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Nature-Technologies/ShipItAnyway/actions/workflows/ci.yml?query=branch%3Amain)
 
 ## ✨ Features
 
@@ -27,9 +27,9 @@
 - **Import** - paste existing Playwright script, get a visual test
 - **Dashboard** - pass rate over time and flaky test detection
 
-## How WrightTest compares
+## How ShipItAnyway compares
 
-| Feature | WrightTest | Cypress | Selenium IDE | Playwright UI |
+| Feature | ShipItAnyway | Cypress | Selenium IDE | Playwright UI |
 |---|---|---|---|---|
 | No-code recorder | ✅ | ❌ | ✅ | ❌ |
 | Docker one-command | ✅ | ❌ | ❌ | ❌ |
@@ -45,8 +45,8 @@
 **Requirements:** Docker, Docker Compose
 
 ```bash
-git clone https://github.com/AlexFilippov-it/wrighttest.git
-cd wrighttest
+git clone https://github.com/Nature-Technologies/ShipItAnyway.git
+cd shipitanyway
 
 cp .env.example .env
 # Edit .env - set JWT_SECRET to a long random string (required)
@@ -62,7 +62,7 @@ docker compose up --build
 
 Default admin login is defined in `.env`:
 
-- `ADMIN_EMAIL=admin@wrighttest.app`
+- `ADMIN_EMAIL=admin@shipitanyway.app`
 - `ADMIN_PASSWORD=changeme`
 
 On an empty database the seed also creates a `Docker Demo` project with two sample tests, a `DEV` environment, a `Smoke Test` suite, and an hourly schedule.
@@ -73,11 +73,11 @@ This path is the recommended first launch on any machine. The backend image is b
 
 A public demo UI is available at:
 
-- https://demo.wrighttest.com
+- https://demo.shipitanyway.com
 
 Demo credentials:
 
-- Email: `demo@wrighttest.com`
+- Email: `demo@shipitanyway.com`
 - Password: `demo`
 
 The demo account has read-only access only.
@@ -119,7 +119,7 @@ If you place nginx in front of the app, proxy the public frontend domain to the 
 
 ## noVNC Local / Server Modes
 
-WrightTest uses a single `VITE_NOVNC_URL` value and derives the websocket path from it at runtime.
+ShipItAnyway uses a single `VITE_NOVNC_URL` value and derives the websocket path from it at runtime.
 
 ### Local Development
 
@@ -153,7 +153,7 @@ If you are working with an AI coding agent, start here first:
 
 - [AGENTS.md](./AGENTS.md)
 
-It contains the canonical repo workflow, startup order, and environment rules for WrightTest.
+It contains the canonical repo workflow, startup order, and environment rules for ShipItAnyway.
 
 ## 🛠 Host Fallback (optional)
 
@@ -162,8 +162,8 @@ Use this only if you want to run the frontend with Vite and the backend on the h
 **Requirements:** Node.js 20+, PostgreSQL 16, Redis 7
 
 ```bash
-git clone https://github.com/AlexFilippov-it/wrighttest.git
-cd wrighttest
+git clone https://github.com/Nature-Technologies/ShipItAnyway.git
+cd shipitanyway
 
 cp .env.example .env
 # Edit DATABASE_URL for local PostgreSQL
@@ -251,7 +251,7 @@ docker compose up --build -d
 
 ## 🧪 Data-driven Checks
 
-WrightTest separates checks from test cases:
+ShipItAnyway separates checks from test cases:
 
 - **Check** - one browser scenario: URL, device, and steps.
 - **Test case** - one named set of scenario variables for that check.
@@ -275,7 +275,7 @@ Wrong password
 EMAIL=admin@test.com
 PASS=123456
 EXPECTED_MESSAGE=Invalid email or password
-EXPECTED_URL=https://demo.wrighttest.com/login
+EXPECTED_URL=https://demo.shipitanyway.com/login
 ```
 
 Example steps:
@@ -291,7 +291,7 @@ For manual runs in the editor, select the case in **Check settings** next to the
 
 On the project checks page, **Run** is data-aware: checks with one enabled case start a normal run; checks with multiple enabled cases queue a batch and open the batch result page.
 
-WrightTest combines variables from the selected environment with variables from the selected test data case for that run. Test data case variables take precedence when the same variable name exists in both places. Empty strings are valid values, so a case can intentionally define `EMAIL=`.
+ShipItAnyway combines variables from the selected environment with variables from the selected test data case for that run. Test data case variables take precedence when the same variable name exists in both places. Empty strings are valid values, so a case can intentionally define `EMAIL=`.
 
 Disabled cases are ignored by run actions and do not block variable diagnostics.
 
@@ -299,7 +299,7 @@ This keeps ordinary checks unchanged: if a check has no test data, it runs exact
 
 ## 🖥 Devices
 
-If no device is selected, WrightTest uses the default desktop browser context (`1280x720`). The device selector only stores explicit overrides such as:
+If no device is selected, ShipItAnyway uses the default desktop browser context (`1280x720`). The device selector only stores explicit overrides such as:
 
 - `Desktop 1280px`
 - `Desktop 1920px (HiDPI)`
@@ -339,7 +339,7 @@ npx playwright test
 
 ## 👥 Project Roles
 
-WrightTest supports project-level access roles to control who can edit, run, and manage a project.
+ShipItAnyway supports project-level access roles to control who can edit, run, and manage a project.
 
 ### Editor
 
@@ -411,7 +411,7 @@ Playwright headless
 ## 📋 Roadmap
 
 - [ ] Network mocking (`page.route()`)
-- [ ] CLI tool (`wrighttest run --project-id`)
+- [ ] CLI tool (`shipitanyway run --project-id`)
 - [x] Export full Playwright project
 - [ ] Test-to-Doc export
 - [ ] Allure / TestIT integration
@@ -422,14 +422,14 @@ The Docker image badge will be added after the first public image publish.
 
 ## 📄 License
 
-WrightTest is source-available, but not open-source under the OSI definition.
+ShipItAnyway is source-available, but not open-source under the OSI definition.
 
-You may use, copy, modify, and run WrightTest for personal, educational,
+You may use, copy, modify, and run ShipItAnyway for personal, educational,
 research, internal, and evaluation purposes, including testing your own
 applications, websites, services, or products.
 
-You may not sell WrightTest as a standalone product or offer WrightTest, or a
-modified version of WrightTest, as a public hosted service without prior written
+You may not sell ShipItAnyway as a standalone product or offer ShipItAnyway, or a
+modified version of ShipItAnyway, as a public hosted service without prior written
 permission.
 
 See [LICENSE](./LICENSE) for details.

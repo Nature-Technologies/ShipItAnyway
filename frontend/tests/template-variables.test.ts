@@ -82,7 +82,7 @@ test('diagnostics treats expected result variables as regular scenario variables
       testCase('Wrong password', {
         EMAIL: 'admin@test.com',
         EXPECTED_MESSAGE: 'Invalid email or password',
-        EXPECTED_URL: 'https://demo.wrighttest.com/login'
+        EXPECTED_URL: 'https://demo.shipitanyway.com/login'
       })
     ]
   });
