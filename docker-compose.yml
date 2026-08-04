@@ -47,61 +47,6 @@ services:
       timeout: 5s
       retries: 10
 
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    restart: unless-stopped
-    ports:
-      - "${BACKEND_HOST_PORT:-3000}:3000"
-    environment:
-      BACKEND_PORT: ${BACKEND_PORT:-3000}
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/playwright_testing
-      REDIS_HOST: redis
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:${FRONTEND_HOST_PORT:-5173}}
-      FRONTEND_INTERNAL_URL: ${FRONTEND_INTERNAL_URL:-http://frontend:80}
-      SCREENSHOTS_DIR: /app/backend/screenshots
-      TRACES_DIR: /app/backend/traces
-      DISPLAY: ":99"
-      NOVNC_HOST: novnc
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@shipitanyway.app}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
-      NODE_ENV: production
-    volumes:
-      - screenshots:/app/backend/screenshots
-      - traces:/app/backend/traces
-      - x11_socket:/tmp/.X11-unix
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      novnc:
-        condition: service_healthy
-    shm_size: '1gb'
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:${BACKEND_PORT:-3000}/health >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 15
-
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-      args:
-        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_HOST_PORT:-3000}}
-        VITE_NOVNC_URL: ${VITE_NOVNC_URL:-http://localhost:${NOVNC_HOST_PORT:-6080}}
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_HOST_PORT:-5173}:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-
 volumes:
   postgres_data:
   screenshots:

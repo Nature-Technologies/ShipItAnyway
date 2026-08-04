@@ -38,5 +38,5 @@ Thumbs.db
 /test-results/
 /validate-requests.txt
 
-# Docker
-docker-compose.override.yml
+# Turborepo
+.turbo/

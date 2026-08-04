@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Low-code UI test automation platform powered by Playwright",
   "private": true,
+  "packageManager": "npm@10.9.3",
   "homepage": "https://shipitanyway.com",
   "repository": {
     "type": "git",
@@ -14,12 +15,15 @@
   ],
   "scripts": {
     "setup": "node scripts/setup-playwright.mjs",
-    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
-    "dev:backend": "npm run dev -w backend",
-    "dev:frontend": "npm run dev -w frontend"
+    "dev": "turbo run dev",
+    "dev:backend": "turbo run dev --filter=backend",
+    "dev:frontend": "turbo run dev --filter=frontend",
+    "build": "turbo run build",
+    "lint": "turbo run lint"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
-    "dotenv-cli": "^11.0.0"
+    "dotenv-cli": "^11.0.0",
+    "turbo": "^2.5.0"
   }
 }
