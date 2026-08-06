@@ -25,12 +25,10 @@ import {
   getBlockingTemplateVariableErrorsForCase
 } from '../utils/templateVariables';
 import { normalizeDeviceForPayload } from '../utils/testPayload';
+import { BACKEND_URL, ENABLE_NOVNC, NOVNC_URL } from '../utils/runtimeConfig';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
-const NOVNC_URL = import.meta.env.VITE_NOVNC_URL ?? 'http://localhost:6080';
-const ENABLE_NOVNC = import.meta.env.VITE_ENABLE_NOVNC !== 'false';
 
 function resolveNoVncWebsocketPath(baseUrl: string) {
   try {

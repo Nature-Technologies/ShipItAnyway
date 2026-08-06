@@ -28,14 +28,7 @@ services:
       retries: 10
 
   novnc:
-    image: ${WRIGHTTEST_IMAGE_NAMESPACE:-wrighttest}/wrighttest-novnc:${WRIGHTTEST_IMAGE_TAG:-local}
-    build:
-      context: ./novnc
-      dockerfile: Dockerfile
-      args:
-        VERSION: ${WRIGHTTEST_IMAGE_TAG:-local}
-        VCS_REF: ${WRIGHTTEST_VCS_REF:-local}
-        BUILD_DATE: ${WRIGHTTEST_BUILD_DATE:-local}
+    image: ${WRIGHTTEST_IMAGE_NAMESPACE:-wrighttest}/wrighttest-novnc:${WRIGHTTEST_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${VNC_HOST_PORT:-5900}:5900"
@@ -53,14 +46,7 @@ services:
       retries: 10
 
   backend:
-    image: ${WRIGHTTEST_IMAGE_NAMESPACE:-wrighttest}/wrighttest-backend:${WRIGHTTEST_IMAGE_TAG:-local}
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-      args:
-        VERSION: ${WRIGHTTEST_IMAGE_TAG:-local}
-        VCS_REF: ${WRIGHTTEST_VCS_REF:-local}
-        BUILD_DATE: ${WRIGHTTEST_BUILD_DATE:-local}
+    image: ${WRIGHTTEST_IMAGE_NAMESPACE:-wrighttest}/wrighttest-backend:${WRIGHTTEST_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${BACKEND_HOST_PORT:-3000}:3000"
@@ -99,23 +85,14 @@ services:
       retries: 15
 
   frontend:
-    image: ${WRIGHTTEST_IMAGE_NAMESPACE:-wrighttest}/wrighttest-frontend:${WRIGHTTEST_IMAGE_TAG:-local}
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-      args:
-        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_HOST_PORT:-3000}}
-        VITE_NOVNC_URL: ${VITE_NOVNC_URL:-http://localhost:${NOVNC_HOST_PORT:-6080}}
-        VERSION: ${WRIGHTTEST_IMAGE_TAG:-local}
-        VCS_REF: ${WRIGHTTEST_VCS_REF:-local}
-        BUILD_DATE: ${WRIGHTTEST_BUILD_DATE:-local}
+    image: ${WRIGHTTEST_IMAGE_NAMESPACE:-wrighttest}/wrighttest-frontend:${WRIGHTTEST_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_HOST_PORT:-5173}:80"
     environment:
       VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_HOST_PORT:-3000}}
       VITE_NOVNC_URL: ${VITE_NOVNC_URL:-http://localhost:${NOVNC_HOST_PORT:-6080}}
       VITE_ENABLE_NOVNC: ${VITE_ENABLE_NOVNC:-true}
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_HOST_PORT:-5173}:80"
     depends_on:
       backend:
         condition: service_healthy

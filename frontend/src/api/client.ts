@@ -18,6 +18,7 @@ import type {
   RunsResponse,
   ValidationReport
 } from '../types';
+import { BACKEND_URL } from '../utils/runtimeConfig';
 
 export type TestPayload = {
   name: string;
@@ -29,7 +30,7 @@ export type TestPayload = {
 };
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000'
+  baseURL: BACKEND_URL
 });
 
 export const getProjects = () =>

@@ -23,10 +23,10 @@ import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
 import RunStatusBadge from '../components/RunStatusBadge';
 import type { RunStatus, StepAction, TestRun } from '../types';
+import { BACKEND_URL } from '../utils/runtimeConfig';
 
 const { Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
 
 type StepResultRow = {
   key: number;

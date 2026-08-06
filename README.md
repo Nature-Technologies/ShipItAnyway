@@ -69,6 +69,51 @@ On an empty database the seed also creates a `Docker Demo` project with two samp
 
 This path is the recommended first launch on any machine. The backend image is built on the Playwright-ready base image and includes the browser bundle, so no host browser or system library setup is required.
 
+## 🐳 Docker Hub Images
+
+WrightTest is a multi-container stack. Docker Hub publishes the WrightTest-owned application images, while PostgreSQL and Redis continue to use official upstream images:
+
+- `wrighttest/wrighttest-backend`
+- `wrighttest/wrighttest-frontend`
+- `wrighttest/wrighttest-novnc`
+- `postgres:16-alpine`
+- `redis:7-alpine`
+
+Run the published images without rebuilding locally:
+
+```bash
+git clone https://github.com/AlexFilippov-it/wrighttest.git
+cd wrighttest
+
+cp .env.example .env
+# Set JWT_SECRET to a long random string.
+
+docker compose -f docker-compose.hub.yml pull
+docker compose -f docker-compose.hub.yml up -d
+```
+
+Use `WRIGHTTEST_IMAGE_NAMESPACE` and `WRIGHTTEST_IMAGE_TAG` to select another Docker Hub namespace or version:
+
+```env
+WRIGHTTEST_IMAGE_NAMESPACE=your-dockerhub-org
+WRIGHTTEST_IMAGE_TAG=0.2.0
+```
+
+The regular `docker-compose.yml` remains the source-of-truth development compose file and builds the same image names from the current Git checkout. `docker-compose.hub.yml` is the pull-only runtime variant for Docker Hub users.
+
+Frontend URLs are runtime-configured in the container through:
+
+- `VITE_BACKEND_URL`
+- `VITE_NOVNC_URL`
+- `VITE_ENABLE_NOVNC`
+
+This keeps published frontend images reusable across localhost, VPS, and reverse-proxy deployments without rebuilding the frontend for each public URL.
+
+Docker image metadata includes OCI labels pointing back to:
+
+- https://wrighttest.com
+- https://github.com/AlexFilippov-it/wrighttest
+
 ## 🌐 Live Demo
 
 A public demo UI is available at:
