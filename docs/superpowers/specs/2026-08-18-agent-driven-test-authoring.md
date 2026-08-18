@@ -54,6 +54,14 @@ execute through the **same `resolveLocator`** the replay worker uses, so a captu
 identically at run time. The browser stays on the backend (where Chromium, traces, and `FIXTURES_DIR`
 live); the MCP server is a thin translation layer, so agents run anywhere.
 
+**How the agent sees.** Every session response — `start`, each action, and an explicit `observe` —
+returns a **`PageView`**: `{ screenshot (fullPage base64 PNG), snapshot, url, title }`. `snapshot` is a
+structured **aria snapshot** (`page.locator('body').ariaSnapshot()`, Playwright 1.61) — a role+name tree
+of the page, the same mechanism the official Playwright MCP exposes. Structured sight matters because a
+raw screenshot gives no selectors: the agent reads the aria tree to choose `getByRole(...)`/`getByLabel(...)`
+locators, which `resolveLocator`'s allowlist already supports, and uses the screenshot for visual
+confirmation. `observe` lets the agent look without acting.
+
 ## Requirements
 
 ### R1 — File fixtures + `upload` action (full storage)
@@ -74,27 +82,37 @@ live); the MCP server is a thin translation layer, so agents run anywhere.
 
 ### R2 — Live driven recording session core
 - New `backend/src/services/driven-recorder.ts`: `startDrivenSession`, `getDrivenSession`,
-  `stopDrivenSession`. Session = `{ id, projectId, userId, browser, context, page, steps: Step[] }` in
-  an in-memory `Map`. Start navigates to the URL and records the initial `goto`.
+  `stopDrivenSession`, plus a shared `captureView(page): Promise<PageView>` helper
+  (`PageView = { screenshot: string; snapshot: string; url: string; title: string }`;
+  `screenshot` = `page.screenshot({ fullPage: true })` base64, `snapshot` = `page.locator('body').ariaSnapshot()`).
+  Session = `{ id, projectId, userId, browser, context, page, steps: Step[] }` in an in-memory `Map`.
+  Start navigates to the URL, records the initial `goto`, and returns the first `PageView` so the agent
+  can see the landing page before its first action.
 - *Ceiling: in-memory, lost on restart, no `Recording` table — add one only if sessions must survive.*
 
-### R3 — Per-action capture endpoint/service
+### R3 — Per-action capture + observe
 - `performDrivenAction(sessionId, action)` executes one structured action via `resolveLocator`,
   appends an enriched `Step` (candidates via `deriveSelectorCandidates`; `elementText`/`elementTag`
-  from the live element), returns `{ step, screenshot }` (base64, for agent feedback).
+  from the live element), returns `{ step, view: PageView }` — the post-action view is the agent's
+  next "before" state.
+- `observeDrivenSession(sessionId)` returns `{ view: PageView }` without acting (so the agent can look,
+  scroll-and-look, or re-orient).
 - Assertion actions execute to confirm they hold at capture; a failing assertion returns an error and
   is **not** appended (feedback for the agent).
 
 ### R4 — HTTP surface
-- `POST /recordings/driven/start` — `{ projectId, url, device? }` → `201 { sessionId, steps }`.
-- `POST /recordings/driven/:id/action` — a `Step`-shaped body → `200 { step, screenshot }` | `422 { error }`.
+- `POST /recordings/driven/start` — `{ projectId, url, device? }` → `201 { sessionId, steps, view }`.
+- `POST /recordings/driven/:id/action` — a `Step`-shaped body → `200 { step, view }` | `422 { error }`.
+- `GET /recordings/driven/:id/observe` → `200 { view }` (look without acting).
 - `POST /recordings/driven/:id/stop` → `{ steps }`, closes the browser.
-- Guarded by `requireProjectRole(...,['OWNER','EDITOR'])` (start: body `projectId`; action/stop: the session's stored `projectId`).
+- Guarded by `requireProjectRole(...,['OWNER','EDITOR'])` (start: body `projectId`; action/observe/stop: the session's stored `projectId`).
 
 ### R5 — MCP server (agent surface)
 - New service `mcp-server/` (or `backend/src/mcp/`) using `@modelcontextprotocol/sdk`, exposing the
-  tools above. Each tool calls the backend HTTP driven API. Returns the screenshot + captured step so
-  the agent can decide the next action; `finish_recording` returns the `Step[]`.
+  tools above **plus an `observe` tool**. Each tool calls the backend HTTP driven API and returns the
+  `PageView` (screenshot as an MCP image content block + the aria `snapshot` as text) so the agent both
+  sees the page and has the structured element tree to pick selectors; `finish_recording` returns the
+  `Step[]`.
 - **Auth ceiling:** scoped per-project tokens are Phase 2/4. For now the MCP server holds one
   configured backend credential (env: a service JWT / admin login) and takes `projectId` as a tool
   argument. Flag with a `ponytail:` note; swap for a scoped token when Phase 2 lands.
@@ -118,14 +136,16 @@ live); the MCP server is a thin translation layer, so agents run anywhere.
 - A fixture uploads via `POST /projects/:id/fixtures` and appears in the list; a test with an
   `upload` step (value = fixtureId) validates, replays (worker calls `setInputFiles` with the resolved
   path), and exports to a `.setInputFiles(...)` line.
-- `POST /recordings/driven/start` returns a session id + initial `goto`; the browser is live.
+- `POST /recordings/driven/start` returns a session id + initial `goto` + a `PageView` (fullPage
+  screenshot, non-empty aria `snapshot`, url, title); the browser is live.
 - `POST /recordings/driven/:id/action` (click/fill on a real element) appends a `Step` whose selector
-  resolves via `resolveLocator`, with populated `selectorCandidates`, and returns a screenshot; a
-  failing assertion returns `422` and appends nothing.
+  resolves via `resolveLocator`, with populated `selectorCandidates`, and returns the post-action
+  `PageView`; a failing assertion returns `422` and appends nothing.
+- `GET /recordings/driven/:id/observe` returns a `PageView` and does not change the step list.
 - `stop` returns the accumulated `Step[]` and frees the browser; those steps save as a `Test` and
   re-run deterministically.
-- An MCP client can call `start_recording → navigate/click/type/upload/assert → finish_recording` and
-  receive the resulting `Step[]`; the same steps save as a `Test`.
+- An MCP client can call `start_recording → observe → navigate/click/type/upload/assert → finish_recording`,
+  seeing a screenshot + aria snapshot at each step, and receive the resulting `Step[]`; the same steps save as a `Test`.
 - Access control: a non-member is `403` on the HTTP endpoints.
 
 ## Test approach

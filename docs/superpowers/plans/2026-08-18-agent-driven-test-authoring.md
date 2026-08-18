@@ -258,7 +258,9 @@ git commit -m "feat(steps): upload action backed by stored fixtures (setInputFil
 **Interfaces:**
 - Consumes: `launchChromium` (`utils/browser.ts`), `Step`.
 - Produces:
-  - `startDrivenSession(input: { projectId; userId; url; device? }): Promise<{ sessionId; steps: Step[] }>`
+  - `type PageView = { screenshot: string; snapshot: string; url: string; title: string }`
+  - `captureView(page: Page): Promise<PageView>` — fullPage screenshot (base64) + `body` aria snapshot + url + title.
+  - `startDrivenSession(input: { projectId; userId; url; device? }): Promise<{ sessionId; steps: Step[]; view: PageView }>`
   - `getDrivenSession(id): DrivenSession | undefined`
   - `stopDrivenSession(id): Promise<{ steps: Step[] }>`
   - `type DrivenSession = { id; projectId; userId; browser; context; page; steps: Step[] }`
@@ -278,13 +280,15 @@ async function chromiumAvailable() {
 }
 const hasChromium = await chromiumAvailable();
 
-test('start records initial goto; stop returns steps and frees the browser',
+test('start records initial goto, returns a view, and stop frees the browser',
   { skip: !hasChromium && 'chromium unavailable' }, async () => {
-    const { sessionId, steps } = await startDrivenSession({
+    const { sessionId, steps, view } = await startDrivenSession({
       projectId: 'p1', userId: 'u1', url: 'data:text/html,<button id=b>Hi</button>'
     });
     assert.ok(sessionId);
     assert.equal(steps[0].action, 'goto');
+    assert.ok(view.screenshot.length > 0);
+    assert.match(view.snapshot, /button/); // aria snapshot names the button
     assert.ok(getDrivenSession(sessionId));
     const stopped = await stopDrivenSession(sessionId);
     assert.equal(stopped.steps[0].action, 'goto');
@@ -311,14 +315,24 @@ export interface DrivenSession {
   id: string; projectId: string; userId: string;
   browser: Browser; context: BrowserContext; page: Page; steps: Step[];
 }
+export interface PageView { screenshot: string; snapshot: string; url: string; title: string }
 // ponytail: in-memory, lost on restart, no cap. Add a Recording table only if sessions must survive.
 const sessions = new Map<string, DrivenSession>();
 
 export function getDrivenSession(id: string): DrivenSession | undefined { return sessions.get(id); }
 
+export async function captureView(page: Page): Promise<PageView> {
+  const [screenshotBuf, snapshot, title] = await Promise.all([
+    page.screenshot({ fullPage: true }),
+    page.locator('body').ariaSnapshot(),   // structured role+name tree for selector picking
+    page.title()
+  ]);
+  return { screenshot: screenshotBuf.toString('base64'), snapshot, url: page.url(), title };
+}
+
 export async function startDrivenSession(input: {
   projectId: string; userId: string; url: string; device?: string;
-}): Promise<{ sessionId: string; steps: Step[] }> {
+}): Promise<{ sessionId: string; steps: Step[]; view: PageView }> {
   const browser = await launchChromium();
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -326,7 +340,7 @@ export async function startDrivenSession(input: {
   const steps: Step[] = [{ action: 'goto', value: input.url }];
   const id = randomUUID();
   sessions.set(id, { id, projectId: input.projectId, userId: input.userId, browser, context, page, steps });
-  return { sessionId: id, steps };
+  return { sessionId: id, steps, view: await captureView(page) };
 }
 
 export async function stopDrivenSession(id: string): Promise<{ steps: Step[] }> {
@@ -359,8 +373,10 @@ git commit -m "feat(recording): live library-driven recording session store"
 - Test: `backend/tests/driven-action.test.ts`
 
 **Interfaces:**
-- Consumes: `resolveLocator`, `deriveSelectorCandidates`, `resolveBrowserUrl` (export from the worker/util if private), `resolveFixturePath` + `prisma.fixture` (for `upload`), `expect` from `@playwright/test`.
-- Produces: `performDrivenAction(sessionId, action: Step): Promise<{ step: Step; screenshot: string }>`; throws `DrivenActionError` on unresolved selector / failed assertion.
+- Consumes: `captureView` (Task 3), `resolveLocator`, `deriveSelectorCandidates`, `resolveBrowserUrl` (export from the worker/util if private), `resolveFixturePath` + `prisma.fixture` (for `upload`), `expect` from `@playwright/test`.
+- Produces:
+  - `performDrivenAction(sessionId, action: Step): Promise<{ step: Step; view: PageView }>`; throws `DrivenActionError` on unresolved selector / failed assertion.
+  - `observeDrivenSession(sessionId): Promise<{ view: PageView }>` — captures a view without acting; throws `DrivenActionError` if the session is unknown.
 
 - [ ] **Step 1: Write the failing test (Chromium-guarded)**
 
@@ -383,11 +399,12 @@ test('click is executed, appended, and enriched',
       projectId: 'p1', userId: 'u1', url: 'data:text/html,<button id=b>Hi</button>'
     });
     try {
-      const { step, screenshot } = await performDrivenAction(sessionId, { action: 'click', selector: '#b' });
+      const { step, view } = await performDrivenAction(sessionId, { action: 'click', selector: '#b' });
       assert.equal(step.action, 'click');
       assert.equal(step.selector, '#b');
       assert.ok(Array.isArray(step.selectorCandidates));
-      assert.ok(screenshot.length > 0);
+      assert.ok(view.screenshot.length > 0);
+      assert.equal(typeof view.snapshot, 'string');
     } finally { await stopDrivenSession(sessionId); }
   });
 
@@ -464,7 +481,13 @@ export async function performDrivenAction(
     } catch { /* enrichment optional */ }
   }
   session.steps.push(step);
-  return { step, screenshot: (await page.screenshot()).toString('base64') };
+  return { step, view: await captureView(page) };
+}
+
+export async function observeDrivenSession(sessionId: string): Promise<{ view: PageView }> {
+  const session = sessions.get(sessionId);
+  if (!session) throw new DrivenActionError('Session not found');
+  return { view: await captureView(session.page) };
 }
 ```
 
@@ -489,8 +512,8 @@ git commit -m "feat(recording): per-action capture with candidate + element enri
 - Test: `backend/tests/driven-recording-routes.test.ts`
 
 **Interfaces:**
-- Consumes: `startDrivenSession`/`performDrivenAction`/`stopDrivenSession`/`getDrivenSession`/`DrivenActionError`, `requireProjectRole`, `StepSchema`.
-- Produces: `POST /recordings/driven/start` `201 { sessionId, steps }`; `POST /recordings/driven/:id/action` `200 { step, screenshot }` | `422 { error }` | `404`; `POST /recordings/driven/:id/stop` `200 { steps }`.
+- Consumes: `startDrivenSession`/`performDrivenAction`/`observeDrivenSession`/`stopDrivenSession`/`getDrivenSession`/`DrivenActionError`, `requireProjectRole`, `StepSchema`.
+- Produces: `POST /recordings/driven/start` `201 { sessionId, steps, view }`; `POST /recordings/driven/:id/action` `200 { step, view }` | `422 { error }` | `404`; `GET /recordings/driven/:id/observe` `200 { view }`; `POST /recordings/driven/:id/stop` `200 { steps }`.
 
 - [ ] **Step 1: Write the failing test (access control, no browser needed)**
 
@@ -551,6 +574,14 @@ fastify.post<{ Params: { id: string }; Body: unknown }>(
     }
   });
 
+fastify.get<{ Params: { id: string } }>(
+  '/recordings/driven/:id/observe', async (req, reply) => {
+    const session = getDrivenSession(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'Session not found' });
+    await requireProjectRole(session.projectId, req.user.userId, ['OWNER', 'EDITOR']);
+    return observeDrivenSession(req.params.id);
+  });
+
 fastify.post<{ Params: { id: string } }>(
   '/recordings/driven/:id/stop', async (req, reply) => {
     const session = getDrivenSession(req.params.id);
@@ -586,7 +617,7 @@ git commit -m "feat(recording): HTTP endpoints for driven session start/action/s
 
 **Interfaces:**
 - Consumes: the backend driven API (Task 5) via `client.ts`; a configured backend credential (env `BACKEND_URL`, `BACKEND_TOKEN`).
-- Produces: an MCP server exposing tools `start_recording(projectId, url, device?)`, `navigate(url)`, `click(selector)`, `type(selector, value)`, `select(selector, value)`, `upload(selector, fixtureId)`, `assert(kind, selector, expected?)`, `finish_recording()` → each returns the captured step + screenshot; `finish_recording` returns `{ steps }`.
+- Produces: an MCP server exposing tools `start_recording(projectId, url, device?)`, `observe()`, `navigate(url)`, `click(selector)`, `type(selector, value)`, `select(selector, value)`, `upload(selector, fixtureId)`, `assert(kind, selector, expected?)`, `finish_recording()`. Every non-finish tool returns the `PageView` as MCP content — the `screenshot` as an image content block and the aria `snapshot` (+ url/title) as text — so the agent sees the page and has the element tree for selectors; action tools also return the captured step; `finish_recording` returns `{ steps }`.
 
 - [ ] **Step 1: Add the SDK + scaffold the package**
 
@@ -606,9 +637,11 @@ import { buildTools } from '../src/index';
 
 test('click tool forwards the active session and selector', async () => {
   const calls: any[] = [];
+  const view = { screenshot: 'x', snapshot: '- button "Hi"', url: 'https://e.com', title: 'T' };
   const client = {
-    startDriven: async () => ({ sessionId: 's1', steps: [] }),
-    action: async (id: string, a: unknown) => { calls.push([id, a]); return { step: a, screenshot: 'x' }; },
+    startDriven: async () => ({ sessionId: 's1', steps: [], view }),
+    action: async (id: string, a: unknown) => { calls.push([id, a]); return { step: a, view }; },
+    observe: async () => ({ view }),
     stopDriven: async () => ({ steps: [] })
   };
   const tools = buildTools(client as any);
@@ -625,12 +658,15 @@ Expected: FAIL — `buildTools` not found.
 
 - [ ] **Step 4: Implement the client + tools + server**
 
-`mcp-server/src/client.ts`: a `fetch` wrapper calling `POST {BACKEND_URL}/recordings/driven/*` with the
+`mcp-server/src/client.ts`: a `fetch` wrapper calling the driven API — `startDriven`, `action`,
+`observe` (`GET .../observe`), `stopDriven` — against `{BACKEND_URL}/recordings/driven/*` with the
 `Authorization: Bearer ${BACKEND_TOKEN}` header (`// ponytail: single configured service token; swap for
 a Phase-2 scoped project token`). `mcp-server/src/index.ts`: `buildTools(client)` returning the tool set
 (each tool executes via the client and holds the active `sessionId` in closure), wired into an
-`@modelcontextprotocol/sdk` `Server` over stdio. Each non-finish tool builds a `Step`-shaped action and
-calls `client.action(sessionId, action)`, returning the step + screenshot as tool content.
+`@modelcontextprotocol/sdk` `Server` over stdio. Each non-finish tool builds a `Step`-shaped action (or,
+for `observe`, calls `client.observe`) and returns the `PageView` as tool content: the `screenshot` as an
+image content block (`{ type: 'image', data: view.screenshot, mimeType: 'image/png' }`) and the aria
+`snapshot` + url/title as a text block. Action tools include the captured step in the text block.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
@@ -669,9 +705,11 @@ In `frontend/src/api/client.ts`:
 
 ```ts
 startDrivenRecording = (projectId: string, url: string, device?: string) =>
-  api.post<{ sessionId: string; steps: Step[] }>('/recordings/driven/start', { projectId, url, device });
+  api.post<{ sessionId: string; steps: Step[]; view: PageView }>('/recordings/driven/start', { projectId, url, device });
 sendDrivenAction = (sessionId: string, action: Step) =>
-  api.post<{ step: Step; screenshot: string }>(`/recordings/driven/${sessionId}/action`, action);
+  api.post<{ step: Step; view: PageView }>(`/recordings/driven/${sessionId}/action`, action);
+observeDrivenRecording = (sessionId: string) =>
+  api.get<{ view: PageView }>(`/recordings/driven/${sessionId}/observe`);
 stopDrivenRecording = (sessionId: string) =>
   api.post<{ steps: Step[] }>(`/recordings/driven/${sessionId}/stop`);
 uploadFixture = (projectId: string, file: File) => {
@@ -690,9 +728,11 @@ step's `value` is the chosen `fixtureId`.
 - [ ] **Step 3: Thin driven-recording path**
 
 In `TestEditorPage.tsx`, add a "Driven recording" button that calls `startDrivenRecording`, stores the
-session id, shows an action form (reusing `ACTION_OPTIONS`) that calls `sendDrivenAction` and appends the
-returned `step` (rendering the screenshot), and a "Finish" button that calls `stopDrivenRecording` and
-merges via `replaceOrAppendRecordedSteps`. Keep it minimal — agents use MCP; this is the human path.
+session id, and renders the returned `view` — the `view.screenshot` as an `<img src={`data:image/png;base64,${view.screenshot}`}/>`
+so the user sees the live page (same image the agent gets over MCP). Show an action form (reusing
+`ACTION_OPTIONS`) that calls `sendDrivenAction`, appends the returned `step`, and updates the rendered
+`view`; a "Finish" button calls `stopDrivenRecording` and merges via `replaceOrAppendRecordedSteps`.
+Add `PageView` to `frontend/src/types/index.ts`. Keep it minimal — agents use MCP; this is the human path.
 
 - [ ] **Step 4: Manually verify end to end**
 
@@ -714,6 +754,8 @@ git commit -m "feat(recording): fixture picker + thin driven-recording UI"
 
 **Placeholder scan:** every code step carries real code or an exact edit target; `assert*` completion and the validator branch cite exact source lines; `ponytail:` ceilings (in-memory sessions, exporter fixtureId, single MCP token, no fixture GC) are flagged, not silently skipped.
 
-**Type consistency:** `Step` (with `upload`, value = fixtureId) throughout. `startDrivenSession → { sessionId, steps }`, `performDrivenAction → { step, screenshot }`, `stopDrivenSession → { steps }` consistent across service (3,4), routes (5), client (7), and MCP tools (6). `DrivenActionError → 422` in the route. `resolveFixturePath` shared by Task 1 (def), 2 (worker), 4 (capture). `resolveLocator`/`deriveSelectorCandidates`/`resolveBrowserUrl` are the reused shared utilities.
+**Vision channel:** `PageView = { screenshot(fullPage base64), snapshot(aria), url, title }` produced by `captureView` (Task 3) is returned by `start`, every `action`, and `observe` (Tasks 3–5), surfaced to the agent as an MCP image + text block (Task 6) and rendered as an `<img>` for humans (Task 7). The aria `snapshot` — not the screenshot — is what the agent reads to pick `getByRole` selectors that `resolveLocator` accepts.
+
+**Type consistency:** `Step` (with `upload`, value = fixtureId) throughout. `PageView` consistent across service (3,4), routes (5), client (7), MCP (6). `startDrivenSession → { sessionId, steps, view }`, `performDrivenAction → { step, view }`, `observeDrivenSession → { view }`, `stopDrivenSession → { steps }` consistent across service (3,4), routes (5), client (7), and MCP tools (6). `DrivenActionError → 422` in the route. `resolveFixturePath` shared by Task 1 (def), 2 (worker), 4 (capture). `resolveLocator`/`deriveSelectorCandidates`/`resolveBrowserUrl` are the reused shared utilities.
 
 **Ordering:** 1 → 2 (fixtures before the upload action that resolves them). 3 → 4 → 5 sequential. 4 depends on 1 (fixture resolve) and 3 (session). 6 depends on 5 (HTTP surface it calls). 7 depends on 1 and 5. Recommended order = task number order. `resolveBrowserUrl` may be a private worker helper — verify/export during Task 4.
