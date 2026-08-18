@@ -1,6 +1,7 @@
 # Environment
 .env
 !.env.example
+.mcp.json
 
 # Dependencies
 node_modules/
