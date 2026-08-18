@@ -63,7 +63,7 @@ const ChannelDraftTestSchema = z.discriminatedUnion('type', [
 ]);
 
 function buildTestMessage(name: string, type: string): string {
-  return `WrightTest notification test\nChannel: ${name}\nType: ${type}\nStatus: OK`;
+  return `ShipItAnyway notification test\nChannel: ${name}\nType: ${type}\nStatus: OK`;
 }
 
 export async function channelRoutes(fastify: FastifyInstance) {

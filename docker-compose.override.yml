@@ -1,0 +1,71 @@
+# App services (frontend + backend). This is the DEV environment file,
+# auto-loaded by `docker compose up` alongside the infra base (docker-compose.yml).
+#
+# override / staging / production are PEERS. To run a non-dev environment:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.production.yml up
+#
+# To create a peer: copy this file and swap ONLY the two config blocks below.
+# Everything under `services:` (build, volumes, depends_on, healthcheck) stays the same.
+
+# ── Per-environment config — swap these for staging / production ───────────────
+x-backend-env: &backend-env
+  BACKEND_PORT: ${BACKEND_PORT:-3000}
+  DATABASE_URL: postgresql://postgres:postgres@postgres:5432/playwright_testing
+  REDIS_HOST: redis
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:${FRONTEND_HOST_PORT:-5173}}
+  FRONTEND_INTERNAL_URL: ${FRONTEND_INTERNAL_URL:-http://frontend:80}
+  SCREENSHOTS_DIR: /app/backend/screenshots
+  TRACES_DIR: /app/backend/traces
+  DISPLAY: ":99"
+  NOVNC_HOST: novnc
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@shipitanyway.app}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+  NODE_ENV: production
+
+x-frontend-build-args: &frontend-build-args
+  VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_HOST_PORT:-3000}}
+  VITE_NOVNC_URL: ${VITE_NOVNC_URL:-http://localhost:${NOVNC_HOST_PORT:-6080}}
+# ───────────────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_HOST_PORT:-3000}:3000"
+    environment: *backend-env
+    volumes:
+      - screenshots:/app/backend/screenshots
+      - traces:/app/backend/traces
+      - x11_socket:/tmp/.X11-unix
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      novnc:
+        condition: service_healthy
+    shm_size: '1gb'
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${BACKEND_PORT:-3000}/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args: *frontend-build-args
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_HOST_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy

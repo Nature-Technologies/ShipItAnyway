@@ -20,7 +20,7 @@ interface RecordingSession {
 }
 
 const sessions = new Map<string, RecordingSession>();
-const TMP_DIR = '/tmp/wrighttest-codegen';
+const TMP_DIR = '/tmp/shipitanyway-codegen';
 const BACKEND_DIR = fs.existsSync(path.resolve(process.cwd(), 'src', 'index.ts'))
   ? process.cwd()
   : path.resolve(process.cwd(), 'backend');

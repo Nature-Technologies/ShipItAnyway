@@ -7,8 +7,8 @@ test('interpolates scenario variables in assertion expected fields', () => {
   const variables = {
     EXPECTED_MESSAGE: 'Invalid email or password',
     EXPECTED_VALUE: 'admin@test.com',
-    EXPECTED_URL: 'https://demo.wrighttest.com/login',
-    EXPECTED_TITLE: 'WrightTest',
+    EXPECTED_URL: 'https://demo.shipitanyway.com/login',
+    EXPECTED_TITLE: 'ShipItAnyway',
     EXPECTED_COUNT: '3'
   };
   const steps: Step[] = [
@@ -24,8 +24,8 @@ test('interpolates scenario variables in assertion expected fields', () => {
     [
       'Invalid email or password',
       'admin@test.com',
-      'https://demo.wrighttest.com/login',
-      'WrightTest',
+      'https://demo.shipitanyway.com/login',
+      'ShipItAnyway',
       '3'
     ]
   );

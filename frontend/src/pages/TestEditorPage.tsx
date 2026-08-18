@@ -53,7 +53,7 @@ function normalizeTestData(test?: Partial<Test> | null) {
 }
 
 function selectedDataCaseStorageKey(testId: string) {
-  return `wrighttest:selected-data-case:${testId}`;
+  return `shipitanyway:selected-data-case:${testId}`;
 }
 
 function readSelectedDataCaseIndex(testId: string, testData: Test['testData']) {

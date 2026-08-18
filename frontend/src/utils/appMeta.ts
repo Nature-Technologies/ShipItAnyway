@@ -1,6 +1,6 @@
-export const APP_NAME = 'WrightTest';
+export const APP_NAME = 'ShipItAnyway';
 export const APP_DESCRIPTION = 'UI Test Automation Platform';
-export const APP_COPYRIGHT = '\u00a9 2026 WrightTest';
+export const APP_COPYRIGHT = '\u00a9 2026 ShipItAnyway';
 
 const rawVersion = import.meta.env.VITE_APP_VERSION?.trim();
 const rawGitCommit = import.meta.env.VITE_GIT_COMMIT?.trim();

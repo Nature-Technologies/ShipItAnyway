@@ -16,7 +16,7 @@ import {
 import type { TemplateVariablesDiagnostics } from '../../utils/templateVariables';
 
 const { Text } = Typography;
-const TABLE_MODE_STORAGE_KEY = 'wrighttest:test-data-editor-mode';
+const TABLE_MODE_STORAGE_KEY = 'shipitanyway:test-data-editor-mode';
 const VARIABLE_KEY_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
 type TestDataEditorProps = {

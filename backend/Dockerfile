@@ -2,10 +2,10 @@ FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY backend/package.json ./backend/package.json
 
-RUN npm ci --workspace=backend --ignore-scripts
+RUN corepack enable && pnpm install --frozen-lockfile --filter backend --ignore-scripts
 
 COPY backend/ ./backend/
 COPY .env.example .env

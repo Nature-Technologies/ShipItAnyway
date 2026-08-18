@@ -1,4 +1,4 @@
-const PROJECT_SETTINGS_STORAGE_PREFIX = 'wrighttest.project-settings';
+const PROJECT_SETTINGS_STORAGE_PREFIX = 'shipitanyway.project-settings';
 
 const DEFAULT_DEVICE_OPTIONS = [
   'Desktop Chrome',

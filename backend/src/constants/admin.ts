@@ -1,1 +1,1 @@
-export const FALLBACK_ADMIN_EMAIL = 'admin@wrighttest.app';
+export const FALLBACK_ADMIN_EMAIL = 'admin@shipitanyway.app';

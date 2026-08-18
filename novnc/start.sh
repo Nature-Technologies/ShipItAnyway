@@ -19,7 +19,7 @@ Xtigervnc "${DISPLAY_NUM}" \
   -localhost no \
   -AlwaysShared=1 \
   -AcceptSetDesktopSize=0 \
-  -desktop "WrightTest noVNC" \
+  -desktop "ShipItAnyway noVNC" \
   >/tmp/xtigervnc.log 2>&1 &
 
 sleep 2
