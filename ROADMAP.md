@@ -31,11 +31,15 @@ An agent (or human) performs any action a human can on a target site, and the st
 - **Depends on:** nothing (foundation).
 
 ### 1.2 Scheduled test runs (finish existing)
-Cron-scheduled checks already exist (`scheduler.ts`, `Schedule` trigger) — harden and complete.
+Cron-scheduled checks already exist and genuinely fire (~70% done): in-memory `node-cron` timers in `scheduler.ts` enqueue runs, full CRUD in `schedules.ts`, and a management UI in `SchedulesPage.tsx`. Runs already carry `scheduleId`. Remaining work is timezone correctness and robustness.
 
-- Per-check / per-project cron; timezone-aware; schedule-triggered runs in history.
-- Make skipped/failed scheduler rows render meaningfully instead of empty.
-- **Affects:** Execution (`scheduler.ts`) · API routes (`schedules.ts`) · Data model (`Schedule`) · Frontend (schedule config).
+- **Optional per-schedule timezone (default UTC).** Add a nullable `Schedule.timezone`. When unset, everything stays UTC — the server already runs UTC and all stored datetimes are UTC (verified), so the cron is interpreted as UTC. When a timezone is set from the UI, honor it with real DST/locale rules: pass it to node-cron (`cron.schedule(cron, cb, { timezone })`) and to next-run display (`cron-parser` `parseExpression(cron, { tz })`). Pin `TZ=UTC` on the backend container so the default is guaranteed, not implicit. Today node-cron gets no timezone (`scheduler.ts:16`) so it fires in server tz while the UI shows a misleading browser-tz label — this closes that gap.
+- **Browser shows local, server/DB stay UTC.** Persisted timestamps already follow this (stored UTC, displayed in the viewer's tz). Keep that invariant; only the schedule's *firing rule* carries an optional tz.
+- **Missed-run handling / HA.** In-memory node-cron has no catch-up (a run due during downtime is lost) and no multi-instance dedupe (two backends fire every schedule twice). Move to BullMQ repeatable jobs (Redis-backed, dedup-by-repeat-key, restart-safe) or add boot-time reconciliation (`lastRunAt` vs computed next run) + a Redis lock.
+- **Explicit `trigger` field** on `TestRun` (Manual/Schedule/CI) instead of inferring from `scheduleId != null`.
+- **Schedule-scoped "run now"** so a manual fire from the schedules page is tagged with `scheduleId` and appears in that schedule's history (currently it doesn't).
+- Make skipped/failed data-driven scheduler rows (`scheduler.ts:38-48`) render meaningfully instead of an empty detail page.
+- **Affects:** Execution (`scheduler.ts`) · API routes (`schedules.ts`, `runs.ts`) · Data model (`Schedule.timezone`, `TestRun.trigger`) · Infra (`TZ=UTC`, BullMQ repeatable jobs / Redis lock) · Frontend (`SchedulesPage.tsx` timezone picker + local⇄UTC display).
 - **Depends on:** 1.1 (a check to schedule).
 
 ---
