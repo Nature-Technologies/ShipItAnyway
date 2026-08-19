@@ -289,6 +289,7 @@ export interface Schedule {
   id: string;
   name: string;
   cron: string;
+  timezone?: string | null;
   projectId: string;
   suiteId?: string | null;
   suite?: Suite | null;

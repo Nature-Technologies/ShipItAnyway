@@ -8,6 +8,7 @@ import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
 import RunStatusBadge from '../components/RunStatusBadge';
 import type { Environment, ProjectWorkspace, Schedule, Suite, Test } from '../types';
+import { resolveScheduleTimezone } from '../utils/scheduleTimezone';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -20,15 +21,14 @@ const CRON_PRESETS = [
   { label: 'Custom...', value: 'custom' }
 ];
 
-const APP_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
-function formatCompactDateTime(value?: string | null) {
+function formatCompactDateTime(value?: string | null, timeZone?: string) {
   if (!value) return '—';
   return new Date(value).toLocaleString([], {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    ...(timeZone ? { timeZone } : {})
   });
 }
 
@@ -63,6 +63,7 @@ function formatRelativeFutureTime(value: string) {
 }
 
 function formatNextRun(schedule: Schedule) {
+  const timeZone = resolveScheduleTimezone(schedule);
   if (!schedule.enabled) {
     return { primary: 'Paused', secondary: '', overdue: false };
   }
@@ -73,7 +74,7 @@ function formatNextRun(schedule: Schedule) {
   const nextRunAt = new Date(schedule.nextRunAt).getTime();
   if (nextRunAt <= Date.now()) {
     return {
-      primary: formatCompactDateTime(schedule.nextRunAt),
+      primary: formatCompactDateTime(schedule.nextRunAt, timeZone),
       secondary: '',
       overdue: true
     };
@@ -81,7 +82,7 @@ function formatNextRun(schedule: Schedule) {
 
   return {
     primary: formatRelativeFutureTime(schedule.nextRunAt),
-    secondary: formatCompactDateTime(schedule.nextRunAt),
+    secondary: formatCompactDateTime(schedule.nextRunAt, timeZone),
     overdue: false
   };
 }
@@ -160,6 +161,7 @@ export default function SchedulesPage() {
   const [selectedSuiteId, setSelectedSuiteId] = useState<string | undefined>(undefined);
   const [selectedTestId, setSelectedTestId] = useState<string | undefined>(undefined);
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>(undefined);
+  const [selectedTimezone, setSelectedTimezone] = useState<string>('UTC');
   const [enabled, setEnabled] = useState(true);
 
   const load = async () => {
@@ -208,6 +210,7 @@ export default function SchedulesPage() {
     setSelectedSuiteId(suites[0]?.id);
     setSelectedTestId(projectTests[0]?.id);
     setSelectedEnvironmentId(undefined);
+    setSelectedTimezone('UTC');
     setEnabled(true);
   };
 
@@ -221,6 +224,7 @@ export default function SchedulesPage() {
     setName(schedule.name);
     setEnabled(schedule.enabled);
     setSelectedEnvironmentId(schedule.environmentId ?? undefined);
+    setSelectedTimezone(schedule.timezone ?? 'UTC');
 
     if (schedule.suiteId) {
       setTargetType('suite');
@@ -303,6 +307,7 @@ export default function SchedulesPage() {
         await updateSchedule(editingSchedule.id, {
           name: name.trim(),
           cron: cron.trim(),
+          timezone: selectedTimezone,
           suiteId: targetSuiteId ?? null,
           testId: targetTestId ?? null,
           environmentId: selectedEnvironmentId ?? null,
@@ -313,6 +318,7 @@ export default function SchedulesPage() {
         await createSchedule(projectId!, {
           name: name.trim(),
           cron: cron.trim(),
+          timezone: selectedTimezone,
           suiteId: targetSuiteId ?? undefined,
           testId: targetTestId ?? undefined,
           environmentId: selectedEnvironmentId ?? undefined,
@@ -554,14 +560,23 @@ export default function SchedulesPage() {
                 {selectedCron || '—'}
               </Text>
               <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                {describeCron(selectedCron)} {selectedCron ? APP_TIMEZONE : ''}
+                {describeCron(selectedCron)} {selectedCron ? selectedTimezone : ''}
               </Text>
             </div>
             <div style={{ marginTop: 8 }}>
               <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
                 Timezone
               </Text>
-              <Tag style={{ marginTop: 4 }}>{APP_TIMEZONE}</Tag>
+              <Select
+                showSearch
+                style={{ width: '100%', marginTop: 4 }}
+                value={selectedTimezone}
+                onChange={setSelectedTimezone}
+                options={Intl.supportedValuesOf('timeZone').map((tz) => ({ value: tz, label: tz }))}
+                filterOption={(input, option) =>
+                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+              />
             </div>
           </div>
 
