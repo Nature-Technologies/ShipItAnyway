@@ -129,6 +129,7 @@ model Schedule {
   environmentId String?
   environment   Environment? @relation(fields: [environmentId], references: [id], onDelete: SetNull)
   enabled       Boolean   @default(true)
+  timezone      String?
   lastRunAt     DateTime?
   createdAt     DateTime  @default(now())
   runs          TestRun[]

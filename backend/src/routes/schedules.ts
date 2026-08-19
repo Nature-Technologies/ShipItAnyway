@@ -5,6 +5,7 @@ import { z } from 'zod';
 import prisma from '../prisma';
 import { schedulerService } from '../services/scheduler';
 import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { isValidTimezone } from '../utils/timezone';
 
 const ScheduleSchema = z.object({
   name: z.string().min(1).max(100),
@@ -12,7 +13,8 @@ const ScheduleSchema = z.object({
   suiteId: z.string().optional(),
   testId: z.string().optional(),
   environmentId: z.string().optional(),
-  enabled: z.boolean().default(true)
+  enabled: z.boolean().default(true),
+  timezone: z.string().refine(isValidTimezone, 'Invalid IANA timezone').optional().nullable()
 }).refine((value) => Boolean(value.suiteId) !== Boolean(value.testId), {
   message: 'Either suiteId or testId is required'
 });
@@ -23,7 +25,8 @@ const UpdateScheduleSchema = z.object({
   suiteId: z.string().optional().nullable(),
   testId: z.string().optional().nullable(),
   environmentId: z.string().optional().nullable(),
-  enabled: z.boolean().optional()
+  enabled: z.boolean().optional(),
+  timezone: z.string().refine(isValidTimezone, 'Invalid IANA timezone').optional().nullable()
 });
 
 async function validateScheduleTarget(projectId: string, suiteId?: string | null, testId?: string | null, environmentId?: string | null) {
@@ -97,12 +100,12 @@ function groupRunsByTick(runs: Array<{
   });
 }
 
-function getNextRunAt(cronExpression: string, referenceDate: Date) {
+export function getNextRunAt(
+  cronExpression: string, referenceDate: Date, timezone?: string | null
+): Date | null {
   try {
-    const interval = parseExpression(cronExpression, {
-      currentDate: referenceDate
-    });
-    return interval.next().toDate();
+    return parseExpression(cronExpression, { currentDate: referenceDate, tz: timezone ?? 'UTC' })
+      .next().toDate();
   } catch {
     return null;
   }
@@ -148,7 +151,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
         lastRunAt: lastRun?.startedAt ?? schedule.lastRunAt,
         lastRunStatus: lastRun?.status ?? null,
         nextRunAt: schedule.enabled
-          ? getNextRunAt(schedule.cron, lastRun?.startedAt ?? schedule.lastRunAt ?? schedule.createdAt)
+          ? getNextRunAt(schedule.cron, lastRun?.startedAt ?? schedule.lastRunAt ?? schedule.createdAt, schedule.timezone)
           : null,
         createdAt: schedule.createdAt
       };
@@ -274,7 +277,8 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
       suiteId: result.data.suiteId === undefined ? current.suiteId : result.data.suiteId,
       testId: result.data.testId === undefined ? current.testId : result.data.testId,
       environmentId: result.data.environmentId === undefined ? current.environmentId : result.data.environmentId,
-      enabled: result.data.enabled ?? current.enabled
+      enabled: result.data.enabled ?? current.enabled,
+      timezone: result.data.timezone === undefined ? current.timezone : result.data.timezone
     };
 
     if (!cron.validate(next.cron)) {
@@ -296,7 +300,8 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
           suiteId: next.suiteId ?? null,
           testId: next.testId ?? null,
           environmentId: next.environmentId ?? null,
-          enabled: next.enabled
+          enabled: next.enabled,
+          timezone: next.timezone ?? null
         }
       });
 
