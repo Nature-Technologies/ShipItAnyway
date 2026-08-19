@@ -20,9 +20,11 @@ import {
   UnorderedListOutlined,
   UploadOutlined
 } from '@ant-design/icons';
-import { Button, Card, Checkbox, Dropdown, Input, Select, Space, Tooltip, Typography } from 'antd';
+import { Button, Card, Checkbox, Dropdown, Input, Select, Space, Tooltip, Typography, Upload } from 'antd';
+import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { Step, StepAction, StepValidationResult } from '../types';
+import type { Fixture, Step, StepAction, StepValidationResult } from '../types';
+import { listFixtures, uploadFixture } from '../api/client';
 import VariableAutocompleteInput from './VariableAutocompleteInput';
 
 const { Text } = Typography;
@@ -39,7 +41,7 @@ type ActionOption = {
   needsExpected: boolean;
 };
 
-const ACTION_OPTIONS: ActionOption[] = [
+export const ACTION_OPTIONS: ActionOption[] = [
   { value: 'goto', label: 'Navigate to URL', icon: <GlobalOutlined />, group: 'Actions', needsSelector: false, needsValue: true, needsExpected: false },
   { value: 'click', label: 'Click element', icon: <AimOutlined />, group: 'Actions', needsSelector: true, needsValue: false, needsExpected: false },
   { value: 'fill', label: 'Fill input', icon: <EditOutlined />, group: 'Actions', needsSelector: true, needsValue: true, needsExpected: false },
@@ -58,10 +60,55 @@ const ACTION_OPTIONS: ActionOption[] = [
   { value: 'upload', label: 'Upload file', icon: <UploadOutlined />, group: 'Actions', needsSelector: true, needsValue: true, needsExpected: false }
 ];
 
+function FixtureInput({ projectId, value, onChange, readOnly }: {
+  projectId: string;
+  value?: string;
+  onChange: (fixtureId: string) => void;
+  readOnly: boolean;
+}) {
+  const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    listFixtures(projectId).then(setFixtures).catch(() => {});
+  }, [projectId]);
+
+  const handleUpload = (file: File) => {
+    setUploading(true);
+    uploadFixture(projectId, file)
+      .then((fixture) => {
+        setFixtures((prev) => [...prev, fixture]);
+        onChange(fixture.fixtureId);
+      })
+      .catch(() => {})
+      .finally(() => setUploading(false));
+    return false;
+  };
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      <Select
+        value={value || undefined}
+        placeholder="Select fixture"
+        style={{ width: '100%' }}
+        disabled={readOnly}
+        onChange={onChange}
+        options={fixtures.map((f) => ({ value: f.fixtureId, label: f.filename }))}
+      />
+      <Upload beforeUpload={handleUpload} showUploadList={false} disabled={readOnly}>
+        <Button icon={<UploadOutlined />} loading={uploading} size="small" disabled={readOnly}>
+          Upload new fixture
+        </Button>
+      </Upload>
+    </Space>
+  );
+}
+
 interface Props {
   steps: Step[];
   onChange: (steps: Step[]) => void;
   readOnly?: boolean;
+  projectId?: string;
   validationResults?: StepValidationResult[];
   stepIssues?: Array<{
     message?: string;
@@ -174,7 +221,7 @@ function variableHint(value?: string) {
   );
 }
 
-export default function StepEditor({ steps, onChange, readOnly = false, validationResults, stepIssues = [], variableNames = [] }: Props) {
+export default function StepEditor({ steps, onChange, readOnly = false, projectId, validationResults, stepIssues = [], variableNames = [] }: Props) {
   const addStep = () => onChange([...steps, { action: 'goto', value: '' }]);
 
   const removeStep = (index: number) => onChange(steps.filter((_, idx) => idx !== index));
@@ -346,6 +393,13 @@ export default function StepEditor({ steps, onChange, readOnly = false, validati
                       status={fieldIssue?.value ? 'error' : undefined}
                       onChange={(event) => updateStep(index, { value: event.target.value })}
                       onInput={(event) => updateStep(index, { value: event.currentTarget.value })}
+                    />
+                  ) : step.action === 'upload' && projectId ? (
+                    <FixtureInput
+                      projectId={projectId}
+                      value={step.value}
+                      onChange={(fixtureId) => updateStep(index, { value: fixtureId })}
+                      readOnly={readOnly}
                     />
                   ) : (
                     <VariableAutocompleteInput

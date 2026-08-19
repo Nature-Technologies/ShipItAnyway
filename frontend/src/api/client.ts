@@ -2,8 +2,10 @@ import axios from 'axios';
 import type {
   DashboardResponse,
   Environment,
+  Fixture,
   NotificationChannel,
   NotificationChannelType,
+  PageView,
   Project,
   ProjectMember,
   ProjectWorkspace,
@@ -310,3 +312,24 @@ export const startRecording = (url: string, projectId: string, environmentId?: s
 
 export const stopRecording = (sessionId: string) =>
   api.post<{ steps: Step[] }>(`/recordings/${sessionId}/stop`).then((r) => r.data);
+
+export const startDrivenRecording = (projectId: string, url: string, device?: string) =>
+  api.post<{ sessionId: string; steps: Step[]; view: PageView }>('/recordings/driven/start', { projectId, url, device }).then((r) => r.data);
+
+export const sendDrivenAction = (sessionId: string, action: Step) =>
+  api.post<{ step: Step; view: PageView }>(`/recordings/driven/${sessionId}/action`, action).then((r) => r.data);
+
+export const observeDrivenRecording = (sessionId: string) =>
+  api.get<{ view: PageView }>(`/recordings/driven/${sessionId}/observe`).then((r) => r.data);
+
+export const stopDrivenRecording = (sessionId: string) =>
+  api.post<{ steps: Step[] }>(`/recordings/driven/${sessionId}/stop`).then((r) => r.data);
+
+export const uploadFixture = (projectId: string, file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post<Fixture>(`/projects/${projectId}/fixtures`, form).then((r) => r.data);
+};
+
+export const listFixtures = (projectId: string) =>
+  api.get<Fixture[]>(`/projects/${projectId}/fixtures`).then((r) => r.data);

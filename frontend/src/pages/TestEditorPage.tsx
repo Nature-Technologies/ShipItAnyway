@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Breadcrumb, Button, Card, Col, Dropdown, Form, Input, Layout, Modal, Radio, Row, Select, Space, Tag, Typography, message, notification } from 'antd';
 import type { MenuProps } from 'antd';
-import { DownOutlined, DownloadOutlined, PlayCircleOutlined, StopOutlined, VideoCameraOutlined, WarningOutlined } from '@ant-design/icons';
+import { DownOutlined, DownloadOutlined, PlayCircleOutlined, RobotOutlined, StopOutlined, VideoCameraOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { api, createTest, getDevices, getEnvironments, getProject, getTest, startRecording, stopRecording, updateTest, validateTestSteps, runTestWithEnvironment, runAllEnabledTestCases } from '../api/client';
+import { api, createTest, getDevices, getEnvironments, getProject, getTest, startDrivenRecording, sendDrivenAction, stopDrivenRecording, startRecording, stopRecording, updateTest, validateTestSteps, runTestWithEnvironment, runAllEnabledTestCases } from '../api/client';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
-import StepEditor from '../components/StepEditor';
+import StepEditor, { ACTION_OPTIONS } from '../components/StepEditor';
 import TestDataEditor from '../components/test-data/TestDataEditor';
 import VariableAutocompleteInput from '../components/VariableAutocompleteInput';
 import UserMenu from '../components/UserMenu';
-import type { Environment, Step, StepValidationResult, Test } from '../types';
+import type { Environment, PageView, Step, StepValidationResult, Test } from '../types';
 import {
   hasTestDataValidationErrors,
   getEnabledTestDataCaseOptions,
@@ -208,6 +208,10 @@ export default function TestEditorPage() {
   const [selectedRecordingEnvironmentId, setSelectedRecordingEnvironmentId] = useState<string | undefined>(undefined);
   const [recordingUrlHasTemplate, setRecordingUrlHasTemplate] = useState(false);
   const [recordLoading, setRecordLoading] = useState(false);
+  const [drivenSessionId, setDrivenSessionId] = useState<string | null>(null);
+  const [drivenView, setDrivenView] = useState<PageView | null>(null);
+  const [drivenAction, setDrivenAction] = useState<Step>({ action: 'goto', value: '' });
+  const [drivenLoading, setDrivenLoading] = useState(false);
   const [validationResults, setValidationResults] = useState<StepValidationResult[] | undefined>();
   const [validationFeedback, setValidationFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -735,6 +739,47 @@ export default function TestEditorPage() {
     }
   };
 
+  const handleStartDrivenRecording = async () => {
+    if (isReadOnly) { message.warning('Read-only access'); return; }
+    const url = form.getFieldValue('url');
+    const device = form.getFieldValue('device') || undefined;
+    if (!url) { message.warning('Enter Start URL before recording'); return; }
+    try {
+      const data = await startDrivenRecording(currentProjectId ?? projectId ?? '', url, device);
+      setDrivenSessionId(data.sessionId);
+      setDrivenView(data.view);
+    } catch {
+      message.error('Failed to start driven recording');
+    }
+  };
+
+  const handleSendDrivenAction = async () => {
+    if (!drivenSessionId) return;
+    setDrivenLoading(true);
+    try {
+      const data = await sendDrivenAction(drivenSessionId, drivenAction);
+      setDrivenView(data.view);
+      setDrivenAction((prev) => ({ action: prev.action, value: '' }));
+    } catch {
+      message.error('Failed to send action');
+    } finally {
+      setDrivenLoading(false);
+    }
+  };
+
+  const handleFinishDrivenRecording = async () => {
+    if (!drivenSessionId) return;
+    try {
+      const data = await stopDrivenRecording(drivenSessionId);
+      replaceOrAppendRecordedSteps(data.steps);
+      setDrivenSessionId(null);
+      setDrivenView(null);
+      message.success(`Recorded ${data.steps.length} steps`);
+    } catch {
+      message.error('Failed to finish driven recording');
+    }
+  };
+
   const handleOpenExport = (kind: 'spec' | 'project') => {
     if (isReadOnly) {
       message.warning('Read-only access');
@@ -1079,6 +1124,9 @@ export default function TestEditorPage() {
                   <Button icon={<VideoCameraOutlined />} onClick={handleStartRecording} disabled={isReadOnly}>
                     Start recording
                   </Button>
+                  <Button icon={<RobotOutlined />} onClick={() => void handleStartDrivenRecording()} disabled={isReadOnly || Boolean(drivenSessionId)}>
+                    Driven recording
+                  </Button>
                   {exportTrigger}
                   <Button type="primary" loading={saving || validating} disabled={isReadOnly || !isDirty || saving || validating || hasTestDataErrors || shouldBlockRunAllCases} onClick={handleValidateAndSave}>
                     Save changes
@@ -1295,11 +1343,61 @@ export default function TestEditorPage() {
                   {recording && <span style={{ color: '#ff4d4f', fontSize: 13 }}>● Recording in progress...</span>}
                 </Space>
 
+                {drivenSessionId && drivenView && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0', borderBottom: '1px solid #f0f0f0' }}>
+                    <Text type="secondary" style={{ fontWeight: 500 }}>Driven recording active — live page:</Text>
+                    <img
+                      src={`data:image/png;base64,${drivenView.screenshot}`}
+                      alt="Live page screenshot"
+                      style={{ maxWidth: '100%', border: '1px solid #d9d9d9', borderRadius: 8 }}
+                    />
+                    <Space wrap>
+                      <Select
+                        value={drivenAction.action}
+                        style={{ width: 200 }}
+                        onChange={(action) => setDrivenAction({ action, value: '' })}
+                        options={ACTION_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                      />
+                      {ACTION_OPTIONS.find((o) => o.value === drivenAction.action)?.needsSelector && (
+                        <Input
+                          placeholder="Selector"
+                          value={drivenAction.selector ?? ''}
+                          style={{ width: 240 }}
+                          onChange={(e) => setDrivenAction((prev) => ({ ...prev, selector: e.target.value }))}
+                        />
+                      )}
+                      {ACTION_OPTIONS.find((o) => o.value === drivenAction.action)?.needsValue && (
+                        <Input
+                          placeholder="Value"
+                          value={drivenAction.value ?? ''}
+                          style={{ width: 240 }}
+                          onChange={(e) => setDrivenAction((prev) => ({ ...prev, value: e.target.value }))}
+                        />
+                      )}
+                      {ACTION_OPTIONS.find((o) => o.value === drivenAction.action)?.needsExpected && (
+                        <Input
+                          placeholder="Expected"
+                          value={drivenAction.expected ?? ''}
+                          style={{ width: 240 }}
+                          onChange={(e) => setDrivenAction((prev) => ({ ...prev, expected: e.target.value }))}
+                        />
+                      )}
+                      <Button loading={drivenLoading} onClick={() => void handleSendDrivenAction()}>
+                        Send action
+                      </Button>
+                      <Button danger onClick={() => void handleFinishDrivenRecording()}>
+                        Finish
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+
                 {steps.length > 0 ? (
                   <StepEditor
                     steps={steps}
                     onChange={handleStepsChange}
                     readOnly={isReadOnly}
+                    projectId={currentProjectId ?? projectId}
                     stepIssues={stepIssues}
                     validationResults={validationResults}
                     variableNames={environmentVariableNames}

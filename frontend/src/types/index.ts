@@ -390,6 +390,18 @@ export interface TestRun {
   schedule?: Schedule | null;
 }
 
+export interface PageView {
+  screenshot: string;
+  snapshot: string;
+  url: string;
+  title: string;
+}
+
+export interface Fixture {
+  fixtureId: string;
+  filename: string;
+}
+
 export interface TestRunBatch {
   id: string;
   status: RunStatus;
