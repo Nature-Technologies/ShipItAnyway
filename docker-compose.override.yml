@@ -18,6 +18,7 @@ x-backend-env: &backend-env
   FRONTEND_INTERNAL_URL: ${FRONTEND_INTERNAL_URL:-http://frontend:80}
   SCREENSHOTS_DIR: /app/backend/screenshots
   TRACES_DIR: /app/backend/traces
+  FIXTURES_DIR: /app/backend/fixtures
   DISPLAY: ":99"
   NOVNC_HOST: novnc
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
@@ -43,6 +44,7 @@ services:
     volumes:
       - screenshots:/app/backend/screenshots
       - traces:/app/backend/traces
+      - fixtures:/app/backend/fixtures
       - x11_socket:/tmp/.X11-unix
     depends_on:
       postgres:
