@@ -304,8 +304,8 @@ async function runTest(job: Job<TestJobData>) {
             await runSingleTargetAction(page, index, 'selectOption', step);
             break;
           case 'upload': {
-            const fixture = await prisma.fixture.findUnique({ where: { id: step.value! } });
-            if (!fixture) throw new Error(`Fixture not found: ${step.value}`);
+            const fixture = await prisma.fixture.findFirst({ where: { id: step.value!, projectId: test.projectId } });
+            if (!fixture) throw new Error(`Fixture not found or not accessible: ${step.value}`);
             await resolveLocator(page, step.selector!).first().setInputFiles(resolveFixturePath(fixture.storedName));
             break;
           }

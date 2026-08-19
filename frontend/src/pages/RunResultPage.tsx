@@ -60,7 +60,8 @@ function humanizeAction(action: StepAction | string) {
     assertURL: 'Assert URL',
     assertTitle: 'Assert title',
     assertChecked: 'Assert checked',
-    assertCount: 'Assert count'
+    assertCount: 'Assert count',
+    upload: 'Upload file'
   };
   return labels[action] ?? action;
 }
