@@ -246,7 +246,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
         }
       });
 
-      schedulerService.register(schedule);
+      await schedulerService.register(schedule);
       return reply.status(201).send(schedule);
     } catch (error) {
       if (error instanceof Error) {
@@ -306,7 +306,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
         }
       });
 
-      schedulerService.register(schedule);
+      await schedulerService.register(schedule);
       return schedule;
     } catch (error) {
       if (error instanceof Error) {
@@ -343,7 +343,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
       const { userId } = getAuthUser(req);
       await requireProjectRole(current.projectId, userId, ['OWNER', 'EDITOR']);
 
-      schedulerService.unregister(req.params.id);
+      await schedulerService.unregister(req.params.id);
       await prisma.schedule.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
     } catch (error) {

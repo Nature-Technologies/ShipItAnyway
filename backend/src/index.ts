@@ -12,6 +12,7 @@ import prisma from './prisma';
 import { authRoutes } from './routes/auth';
 import { startTestWorker, stopTestWorker } from './queue/worker';
 import { testQueue } from './queue/queue';
+import { startScheduleWorker, stopScheduleWorker, scheduleQueue } from './queue/schedule-queue';
 import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
 import { channelRoutes } from './routes/channels';
@@ -209,6 +210,7 @@ async function start() {
   await fastify.register(recordingRoutes);
   await fastify.register(fixtureRoutes);
   await startTestWorker();
+  startScheduleWorker();
   await schedulerService.loadAll();
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
@@ -246,6 +248,8 @@ async function start() {
       await fastify.close();
       await stopTestWorker();
       await testQueue.close();
+      await stopScheduleWorker();
+      await scheduleQueue.close();
       await redis.quit();
       process.exit(0);
     } catch (error) {
