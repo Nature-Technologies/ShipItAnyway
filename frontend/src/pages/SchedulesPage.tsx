@@ -263,6 +263,7 @@ export default function SchedulesPage() {
     setCronPreset(preset);
     setIsCustomCron(preset === 'custom');
     setCustomCron(schedule.cron);
+    setSelectedTimezone(schedule.timezone ?? 'UTC');
     setModalOpen(true);
   };
 
@@ -520,7 +521,7 @@ export default function SchedulesPage() {
         title={editingSchedule ? `Edit Schedule: ${editingSchedule.name}` : 'New Schedule'}
         open={modalOpen}
         onOk={() => void handleSave()}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => { resetForm(); setModalOpen(false); }}
         confirmLoading={saving}
         width={780}
         centered
