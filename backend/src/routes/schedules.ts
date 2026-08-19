@@ -4,6 +4,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { schedulerService } from '../services/scheduler';
+import { fireSchedule } from '../services/schedule-runner';
 import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
 import { isValidTimezone } from '../utils/timezone';
 
@@ -313,6 +314,18 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
       }
       return reply.status(500).send({ error: 'Failed to update schedule' });
     }
+  });
+
+  fastify.post<{ Params: { id: string } }>('/schedules/:id/run', async (req, reply) => {
+    const { userId } = getAuthUser(req);
+    const schedule = await loadScheduleOr404(req.params.id);
+    if (!schedule) return reply.status(404).send({ error: 'Schedule not found' });
+    try {
+      await requireProjectRole(schedule.projectId, userId, ['OWNER', 'EDITOR']);
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+    return reply.code(202).send(await fireSchedule(schedule.id, { trigger: 'MANUAL' }));
   });
 
   fastify.delete<{ Params: { id: string } }>('/schedules/:id', async (req, reply) => {

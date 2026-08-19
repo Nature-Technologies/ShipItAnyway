@@ -166,6 +166,9 @@ export const updateSchedule = (
 export const deleteSchedule = (id: string) =>
   api.delete(`/schedules/${id}`);
 
+export const runSchedule = (id: string) =>
+  api.post('/schedules/' + id + '/run');
+
 export const getEnvironments = (projectId: string) =>
   api.get<Environment[]>(`/projects/${projectId}/environments`).then((r) => r.data);
 

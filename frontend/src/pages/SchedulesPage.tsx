@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Badge, Button, Card, Col, Dropdown, Input, Layout, Modal, Radio, Row, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { AppstoreOutlined, EllipsisOutlined, FileTextOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { createSchedule, deleteSchedule, getEnvironments, getProject, getSchedules, getSuites, runSuite, runTestWithEnvironment, updateSchedule } from '../api/client';
+import { createSchedule, deleteSchedule, getEnvironments, getProject, getSchedules, getSuites, runSchedule, updateSchedule } from '../api/client';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
@@ -264,16 +264,9 @@ export default function SchedulesPage() {
 
   const runScheduleNow = async (schedule: Schedule) => {
     try {
-      if (schedule.suiteId) {
-        const result = await runSuite(schedule.suiteId, schedule.environmentId ?? undefined);
-        if (result.jobs.length > 0) {
-          navigate(`/runs/${result.jobs[0].testRunId}`);
-        }
-      } else if (schedule.testId) {
-        const result = await runTestWithEnvironment(schedule.testId, schedule.environmentId ?? undefined);
-        navigate(`/runs/${result.testRunId}`);
-      }
+      await runSchedule(schedule.id);
       message.success('Schedule run started');
+      navigate(`/schedules/${schedule.id}/history`);
     } catch {
       message.error('Failed to run schedule');
     }
