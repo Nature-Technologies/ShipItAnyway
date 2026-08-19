@@ -26,7 +26,11 @@ async function get<T>(path: string): Promise<T> {
 }
 
 async function del(path: string): Promise<void> {
-  const res = await fetch(`${BACKEND_URL}${path}`, { method: 'DELETE', headers: authHeaders() });
+  // No body — omit Content-Type so the backend's JSON parser doesn't reject an empty body.
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${BACKEND_TOKEN}` },
+  });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   // 204 No Content — nothing to parse
 }
