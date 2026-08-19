@@ -2,7 +2,7 @@
   "name": "backend",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --respawn src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "prisma:migrate": "dotenv -e ../.env -- prisma migrate dev",
     "prisma:generate": "dotenv -e ../.env -- prisma generate",
     "prisma:studio": "dotenv -e ../.env -- prisma studio",

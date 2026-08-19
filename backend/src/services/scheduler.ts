@@ -89,6 +89,13 @@ class SchedulerService {
     this.tasks.delete(scheduleId);
   }
 
+  stopAll() {
+    for (const task of this.tasks.values()) {
+      task.stop();
+    }
+    this.tasks.clear();
+  }
+
   async loadAll() {
     const schedules = await prisma.schedule.findMany({
       where: { enabled: true }

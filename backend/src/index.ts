@@ -10,7 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import prisma from './prisma';
 import { authRoutes } from './routes/auth';
-import { startTestWorker } from './queue/worker';
+import { startTestWorker, stopTestWorker } from './queue/worker';
+import { testQueue } from './queue/queue';
+import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
 import { channelRoutes } from './routes/channels';
 import { exportRoutes } from './routes/export';
@@ -219,6 +221,35 @@ async function start() {
   });
 
   await fastify.listen({ port, host: '0.0.0.0' });
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    fastify.log.info(`Received ${signal}, shutting down gracefully`);
+
+    // ponytail: hard-exit ceiling if a close() hangs, so we never re-hang the terminal
+    const forceExit = setTimeout(() => {
+      fastify.log.error('Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+
+    try {
+      schedulerService.stopAll();
+      await fastify.close();
+      await stopTestWorker();
+      await testQueue.close();
+      await redis.quit();
+      process.exit(0);
+    } catch (error) {
+      fastify.log.error(error, 'Error during shutdown');
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 void start().catch((error) => {
