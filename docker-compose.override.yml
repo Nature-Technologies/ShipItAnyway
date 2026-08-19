@@ -19,6 +19,7 @@ x-backend-env: &backend-env
   SCREENSHOTS_DIR: /app/backend/screenshots
   TRACES_DIR: /app/backend/traces
   FIXTURES_DIR: /app/backend/fixtures
+  TZ: UTC
   DISPLAY: ":99"
   NOVNC_HOST: novnc
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
