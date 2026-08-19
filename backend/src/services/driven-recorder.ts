@@ -21,7 +21,9 @@ export function getDrivenSession(id: string): DrivenSession | undefined { return
 
 export async function captureView(page: Page): Promise<PageView> {
   const [screenshotBuf, snapshot, title] = await Promise.all([
-    page.screenshot({ fullPage: true }),
+    // ponytail: viewport-only, animations off, bounded timeout — fullPage stalls 30s on tall article pages;
+    // ariaSnapshot below carries the full structure, so viewport pixels are enough for the vision channel.
+    page.screenshot({ animations: 'disabled', caret: 'initial', timeout: 15000 }),
     page.locator('body').ariaSnapshot(),   // structured role+name tree for selector picking
     page.title()
   ]);
