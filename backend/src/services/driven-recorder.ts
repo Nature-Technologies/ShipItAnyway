@@ -26,13 +26,18 @@ export async function startDrivenSession(input: {
   projectId: string; userId: string; url: string; device?: string;
 }): Promise<{ sessionId: string; steps: Step[]; view: PageView }> {
   const browser = await launchChromium();
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto(input.url, { waitUntil: 'domcontentloaded' });
-  const steps: Step[] = [{ action: 'goto', value: input.url }];
-  const id = randomUUID();
-  sessions.set(id, { id, projectId: input.projectId, userId: input.userId, browser, context, page, steps });
-  return { sessionId: id, steps, view: await captureView(page) };
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(input.url, { waitUntil: 'domcontentloaded' });
+    const steps: Step[] = [{ action: 'goto', value: input.url }];
+    const id = randomUUID();
+    sessions.set(id, { id, projectId: input.projectId, userId: input.userId, browser, context, page, steps });
+    return { sessionId: id, steps, view: await captureView(page) };
+  } catch (err) {
+    await browser.close().catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function stopDrivenSession(id: string): Promise<{ steps: Step[] }> {
