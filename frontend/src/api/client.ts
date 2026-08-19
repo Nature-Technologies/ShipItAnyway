@@ -328,8 +328,8 @@ export const stopDrivenRecording = (sessionId: string) =>
 export const uploadFixture = (projectId: string, file: File) => {
   const form = new FormData();
   form.append('file', file);
-  return api.post<Fixture>(`/projects/${projectId}/fixtures`, form).then((r) => r.data);
+  return api.post<{ fixture: Fixture }>(`/projects/${projectId}/fixtures`, form).then((r) => r.data.fixture);
 };
 
 export const listFixtures = (projectId: string) =>
-  api.get<Fixture[]>(`/projects/${projectId}/fixtures`).then((r) => r.data);
+  api.get<{ fixtures: Fixture[] }>(`/projects/${projectId}/fixtures`).then((r) => r.data.fixtures);

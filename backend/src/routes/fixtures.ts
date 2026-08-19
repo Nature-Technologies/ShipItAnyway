@@ -21,6 +21,10 @@ export async function fixtureRoutes(fastify: FastifyInstance) {
     await fs.mkdir(FIXTURES_DIR, { recursive: true });
     const storedName = `${randomUUID()}${path.extname(data.filename)}`;
     await pipeline(data.file, createWriteStream(resolveFixturePath(storedName)));
+    if (data.file.truncated) {
+      await fs.unlink(resolveFixturePath(storedName));
+      return reply.code(413).send({ error: 'File too large' });
+    }
     const { size } = await fs.stat(resolveFixturePath(storedName));
     const fixture = await prisma.fixture.create({
       data: { projectId: req.params.projectId, filename: data.filename, storedName, size }

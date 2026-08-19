@@ -78,7 +78,7 @@ function FixtureInput({ projectId, value, onChange, readOnly }: {
     uploadFixture(projectId, file)
       .then((fixture) => {
         setFixtures((prev) => [...prev, fixture]);
-        onChange(fixture.fixtureId);
+        onChange(fixture.id);
       })
       .catch(() => {})
       .finally(() => setUploading(false));
@@ -93,7 +93,7 @@ function FixtureInput({ projectId, value, onChange, readOnly }: {
         style={{ width: '100%' }}
         disabled={readOnly}
         onChange={onChange}
-        options={fixtures.map((f) => ({ value: f.fixtureId, label: f.filename }))}
+        options={fixtures.map((f) => ({ value: f.id, label: f.filename }))}
       />
       <Upload beforeUpload={handleUpload} showUploadList={false} disabled={readOnly}>
         <Button icon={<UploadOutlined />} loading={uploading} size="small" disabled={readOnly}>

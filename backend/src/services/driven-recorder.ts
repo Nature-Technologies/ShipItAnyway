@@ -88,7 +88,8 @@ export async function performDrivenAction(
         break;
       case 'upload': {
         // R5: project-scoped findFirst to prevent IDOR (same fix as worker.ts upload case)
-        const fx = await prisma.fixture.findFirst({ where: { id: action.value!, projectId: session.projectId } });
+        if (!action.value) throw new DrivenActionError('Fixture id required for upload step');
+        const fx = await prisma.fixture.findFirst({ where: { id: action.value, projectId: session.projectId } });
         if (!fx) throw new DrivenActionError(`Fixture not found or not accessible: ${action.value}`);
         await resolveLocator(page, action.selector!).first().setInputFiles(resolveFixturePath(fx.storedName));
         break;

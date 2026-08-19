@@ -1,5 +1,7 @@
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { pathToFileURL } from 'node:url';
 import { client as drivenClient, type DrivenClient, type PageView } from './client.js';
 
 // ── content helpers ───────────────────────────────────────────────────────────
@@ -105,6 +107,20 @@ export function buildTools(client: DrivenClient): ToolRecord {
   };
 }
 
+// ── per-tool Zod input schemas (raw shapes for registerTool) ──────────────────
+
+const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
+  start_recording:  { projectId: z.string(), url: z.string(), device: z.string().optional() },
+  navigate:         { url: z.string() },
+  click:            { selector: z.string() },
+  type:             { selector: z.string(), value: z.string() },
+  select:           { selector: z.string(), value: z.string() },
+  upload:           { selector: z.string(), fixtureId: z.string() },
+  assert:           { kind: z.string(), selector: z.string().optional(), expected: z.string().optional() },
+  observe:          {},
+  finish_recording: {},
+};
+
 // ── stdio server entry point ──────────────────────────────────────────────────
 
 export async function startServer(): Promise<void> {
@@ -112,13 +128,22 @@ export async function startServer(): Promise<void> {
   const tools = buildTools(drivenClient);
 
   for (const [name, tool] of Object.entries(tools)) {
-    // Wrap: SDK handler receives (args, extra); we only need args.
-    server.registerTool(name, {}, (args: Record<string, unknown>) => tool.handler(args) as Promise<{ content: { type: string }[] }>);
+    const schema = toolSchemas[name] ?? {};
+    server.registerTool(
+      name,
+      { inputSchema: schema },
+      // SDK calls callback as (args, extra) when inputSchema is provided; we only need args.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (args) => tool.handler(args as Record<string, unknown>) as any
+    );
   }
 
   await server.connect(new StdioServerTransport());
 }
 
-if (import.meta.filename && process.argv[1] === import.meta.filename) {
+// I3: pathToFileURL normalises a relative argv[1] so comparison against import.meta.url is reliable.
+// Without this, `node --import tsx/esm src/index.ts` sets argv[1] to a relative path while
+// import.meta.url is absolute → the bare === check would never fire.
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   startServer().catch(console.error);
 }

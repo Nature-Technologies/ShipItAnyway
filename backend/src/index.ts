@@ -194,7 +194,7 @@ async function start() {
     }
   });
 
-  await fastify.register(import('@fastify/multipart'));
+  await fastify.register(import('@fastify/multipart'), { limits: { fileSize: 50 * 1024 * 1024 } });
 
   await fastify.register(projectRoutes);
   await fastify.register(environmentRoutes);

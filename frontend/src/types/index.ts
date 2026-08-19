@@ -398,8 +398,11 @@ export interface PageView {
 }
 
 export interface Fixture {
-  fixtureId: string;
+  id: string;
   filename: string;
+  storedName: string;
+  size: number;
+  createdAt: string;
 }
 
 export interface TestRunBatch {

@@ -6,10 +6,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "tsx src/index.ts",
-    "test": "tsx --test tests/tools.test.ts"
+    "test": "tsx --test tests/tools.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
