@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { client as drivenClient, type DrivenClient, type PageView } from './client.js';
 
 // ── content helpers ───────────────────────────────────────────────────────────
 
-function pageViewContent(view: PageView, step?: unknown) {
+function pageViewContent(view: PageView, step?: unknown): CallToolResult {
   const lines = [`url: ${view.url}`, `title: ${view.title}`, '', view.snapshot];
   if (step !== undefined) lines.push('', JSON.stringify(step));
   return {
@@ -19,13 +20,17 @@ function pageViewContent(view: PageView, step?: unknown) {
 
 // ── tool record type (testable without the SDK) ───────────────────────────────
 
-export type ToolDef = { handler: (args: Record<string, unknown>) => Promise<unknown> };
+export type ToolDef = { handler: (args: Record<string, unknown>) => Promise<CallToolResult> };
 export type ToolRecord = Record<string, ToolDef>;
 
 // ── buildTools: pure function over the client, sessionId held in closure ──────
 
 export function buildTools(client: DrivenClient): ToolRecord {
   let sessionId: string | null = null;
+  const requireSession = (): string => {
+    if (!sessionId) throw new Error('No active recording session. Call start_recording first.');
+    return sessionId;
+  };
 
   return {
     start_recording: {
@@ -39,35 +44,35 @@ export function buildTools(client: DrivenClient): ToolRecord {
 
     observe: {
       handler: async (_args) => {
-        const res = await client.observe(sessionId!);
+        const res = await client.observe(requireSession());
         return pageViewContent(res.view);
       },
     },
 
     navigate: {
       handler: async (args) => {
-        const res = await client.action(sessionId!, { action: 'goto', value: args.url as string });
+        const res = await client.action(requireSession(), { action: 'goto', value: args.url as string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     click: {
       handler: async (args) => {
-        const res = await client.action(sessionId!, { action: 'click', selector: args.selector as string });
+        const res = await client.action(requireSession(), { action: 'click', selector: args.selector as string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     type: {
       handler: async (args) => {
-        const res = await client.action(sessionId!, { action: 'fill', selector: args.selector as string, value: args.value as string });
+        const res = await client.action(requireSession(), { action: 'fill', selector: args.selector as string, value: args.value as string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     select: {
       handler: async (args) => {
-        const res = await client.action(sessionId!, { action: 'selectOption', selector: args.selector as string, value: args.value as string });
+        const res = await client.action(requireSession(), { action: 'selectOption', selector: args.selector as string, value: args.value as string });
         return pageViewContent(res.view, res.step);
       },
     },
@@ -75,7 +80,7 @@ export function buildTools(client: DrivenClient): ToolRecord {
     upload: {
       handler: async (args) => {
         // upload passes fixtureId as the step value so the backend resolves the fixture by id
-        const res = await client.action(sessionId!, { action: 'upload', selector: args.selector as string, value: args.fixtureId as string });
+        const res = await client.action(requireSession(), { action: 'upload', selector: args.selector as string, value: args.fixtureId as string });
         return pageViewContent(res.view, res.step);
       },
     },
@@ -92,14 +97,14 @@ export function buildTools(client: DrivenClient): ToolRecord {
         const step: Record<string, unknown> = { action };
         if (args.selector !== undefined) step.selector = args.selector;
         if (args.expected !== undefined) step.expected = args.expected;
-        const res = await client.action(sessionId!, step as { action: string });
+        const res = await client.action(requireSession(), step as { action: string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     finish_recording: {
       handler: async (_args) => {
-        const res = await client.stopDriven(sessionId!);
+        const res = await client.stopDriven(requireSession());
         sessionId = null;
         return { content: [{ type: 'text' as const, text: JSON.stringify(res) }] };
       },
@@ -129,12 +134,11 @@ export async function startServer(): Promise<void> {
 
   for (const [name, tool] of Object.entries(tools)) {
     const schema = toolSchemas[name] ?? {};
+    // SDK calls the callback as (args, extra) when inputSchema is provided; we only need args.
     server.registerTool(
       name,
       { inputSchema: schema },
-      // SDK calls callback as (args, extra) when inputSchema is provided; we only need args.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (args) => tool.handler(args as Record<string, unknown>) as any
+      (args) => tool.handler(args as Record<string, unknown>)
     );
   }
 

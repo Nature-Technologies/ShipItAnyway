@@ -39,16 +39,16 @@ export interface Step {
 
 export const client = {
   startDriven(input: { projectId: string; url: string; device?: string }): Promise<{ sessionId: string; steps: Step[]; view: PageView }> {
-    return post('/recordings/driven/start', input);
+    return post<{ sessionId: string; steps: Step[]; view: PageView }>('/recordings/driven/start', input);
   },
   action(sessionId: string, step: Step): Promise<{ step: Step; view: PageView }> {
-    return post(`/recordings/driven/${sessionId}/action`, step);
+    return post<{ step: Step; view: PageView }>(`/recordings/driven/${sessionId}/action`, step);
   },
   observe(sessionId: string): Promise<{ view: PageView }> {
-    return get(`/recordings/driven/${sessionId}/observe`);
+    return get<{ view: PageView }>(`/recordings/driven/${sessionId}/observe`);
   },
   stopDriven(sessionId: string): Promise<{ steps: Step[] }> {
-    return post(`/recordings/driven/${sessionId}/stop`, {});
+    return post<{ steps: Step[] }>(`/recordings/driven/${sessionId}/stop`, {});
   },
 };
 
