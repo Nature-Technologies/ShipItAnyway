@@ -325,7 +325,14 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
-    return reply.code(202).send(await fireSchedule(schedule.id, { trigger: 'MANUAL' }));
+    try {
+      return reply.code(202).send(await fireSchedule(schedule.id, { trigger: 'MANUAL' }));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Schedule not found') {
+        return reply.status(404).send({ error: error.message });
+      }
+      return reply.status(500).send({ error: 'Failed to run schedule' });
+    }
   });
 
   fastify.delete<{ Params: { id: string } }>('/schedules/:id', async (req, reply) => {
