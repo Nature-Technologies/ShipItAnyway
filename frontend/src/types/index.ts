@@ -177,7 +177,7 @@ export interface DashboardRecentRun {
   status: RunStatus;
   durationMs: number | null;
   startedAt: string;
-  trigger: 'Manual' | 'Schedule';
+  trigger: 'Manual' | 'Schedule' | 'CI';
   scheduleName: string | null;
   environmentId: string | null;
 }

@@ -59,8 +59,9 @@ model Test {
 }
 
 model TestRun {
-  id          String    @id @default(cuid())
-  status      RunStatus @default(PENDING)
+  id          String     @id @default(cuid())
+  status      RunStatus  @default(PENDING)
+  trigger     RunTrigger @default(MANUAL)
   startedAt   DateTime  @default(now())
   finishedAt  DateTime?
   durationMs  Int?
@@ -187,6 +188,12 @@ enum RunStatus {
   RUNNING
   PASSED
   FAILED
+}
+
+enum RunTrigger {
+  MANUAL
+  SCHEDULE
+  CI
 }
 
 enum BatchStatus {

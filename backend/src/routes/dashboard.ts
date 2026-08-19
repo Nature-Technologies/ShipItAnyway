@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { Prisma, type RunStatus } from '@prisma/client';
+import { Prisma, type RunStatus, type RunTrigger } from '@prisma/client';
 import prisma from '../prisma';
 import { getAccessibleProjectIds, getAuthUser } from '../utils/project-access';
 
@@ -18,6 +18,7 @@ type DashboardRun = {
       name: string;
     };
   };
+  trigger: RunTrigger;
   schedule: {
     id: string;
     name: string;
@@ -39,7 +40,7 @@ function summarizeError(error?: string | null) {
 }
 
 function getTriggerLabel(run: DashboardRun) {
-  return run.schedule ? 'Schedule' : 'Manual';
+  return run.trigger === 'SCHEDULE' ? 'Schedule' : run.trigger === 'CI' ? 'CI' : 'Manual';
 }
 
 async function loadRuns(params: {
@@ -58,6 +59,7 @@ async function loadRuns(params: {
       id: true,
       testId: true,
       status: true,
+      trigger: true,
       startedAt: true,
       durationMs: true,
       error: true,
@@ -109,9 +111,9 @@ function buildRunHistoryWhere(params: {
   }
 
   if (params.trigger === 'manual') {
-    where.scheduleId = null;
+    where.trigger = 'MANUAL';
   } else if (params.trigger === 'schedule') {
-    where.scheduleId = { not: null };
+    where.trigger = 'SCHEDULE';
   }
 
   return where;
@@ -307,6 +309,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         id: true,
         testId: true,
         status: true,
+        trigger: true,
         startedAt: true,
         durationMs: true,
         error: true,
