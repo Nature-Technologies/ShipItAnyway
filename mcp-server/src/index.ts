@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
-import { client as drivenClient, type DrivenClient, type PageView } from './client.js';
+import { client as drivenClient, type DrivenClient, type PageView, type Step } from './client.js';
 
 // ── content helpers ───────────────────────────────────────────────────────────
 
@@ -23,13 +23,25 @@ function pageViewContent(view: PageView, step?: unknown): CallToolResult {
 export type ToolDef = { handler: (args: Record<string, unknown>) => Promise<CallToolResult> };
 export type ToolRecord = Record<string, ToolDef>;
 
-// ── buildTools: pure function over the client, sessionId held in closure ──────
+function textContent(payload: unknown): CallToolResult {
+  return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
+}
 
-export function buildTools(client: DrivenClient): ToolRecord {
-  let sessionId: string | null = null;
-  const requireSession = (): string => {
-    if (!sessionId) throw new Error('No active recording session. Call start_recording first.');
-    return sessionId;
+// ── recording state shared across the tool groups ─────────────────────────────
+// `active` is the live browser session; `finished` is the last completed recording,
+// retained so the Tests group can persist it. A recording must be finished (active
+// cleared, finished set) before it can be saved.
+
+interface ActiveSession { id: string; projectId: string; url: string }
+interface FinishedRecording { projectId: string; url: string; steps: Step[] }
+interface RecordingState { active: ActiveSession | null; finished: FinishedRecording | null }
+
+// ── Group: Recording — session lifecycle + per-action browser drive ───────────
+
+function recordingTools(client: DrivenClient, state: RecordingState): ToolRecord {
+  const requireActive = (): ActiveSession => {
+    if (!state.active) throw new Error('No active recording session. Call start_recording first.');
+    return state.active;
   };
 
   return {
@@ -37,42 +49,40 @@ export function buildTools(client: DrivenClient): ToolRecord {
       handler: async (args) => {
         const { projectId, url, device } = args as { projectId: string; url: string; device?: string };
         const res = await client.startDriven({ projectId, url, device });
-        sessionId = res.sessionId;
+        state.active = { id: res.sessionId, projectId, url };
+        state.finished = null; // a fresh recording invalidates any prior finished capture
         return pageViewContent(res.view);
       },
     },
 
     observe: {
-      handler: async (_args) => {
-        const res = await client.observe(requireSession());
-        return pageViewContent(res.view);
-      },
+      handler: async () => pageViewContent((await client.observe(requireActive().id)).view),
     },
 
     navigate: {
       handler: async (args) => {
-        const res = await client.action(requireSession(), { action: 'goto', value: args.url as string });
+        const res = await client.action(requireActive().id, { action: 'goto', value: args.url as string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     click: {
       handler: async (args) => {
-        const res = await client.action(requireSession(), { action: 'click', selector: args.selector as string });
+        const res = await client.action(requireActive().id, { action: 'click', selector: args.selector as string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     type: {
       handler: async (args) => {
-        const res = await client.action(requireSession(), { action: 'fill', selector: args.selector as string, value: args.value as string });
+        const res = await client.action(requireActive().id, { action: 'fill', selector: args.selector as string, value: args.value as string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     select: {
       handler: async (args) => {
-        const res = await client.action(requireSession(), { action: 'selectOption', selector: args.selector as string, value: args.value as string });
+        const res = await client.action(requireActive().id, { action: 'selectOption', selector: args.selector as string, value: args.value as string });
         return pageViewContent(res.view, res.step);
       },
     },
@@ -80,7 +90,7 @@ export function buildTools(client: DrivenClient): ToolRecord {
     upload: {
       handler: async (args) => {
         // upload passes fixtureId as the step value so the backend resolves the fixture by id
-        const res = await client.action(requireSession(), { action: 'upload', selector: args.selector as string, value: args.fixtureId as string });
+        const res = await client.action(requireActive().id, { action: 'upload', selector: args.selector as string, value: args.fixtureId as string });
         return pageViewContent(res.view, res.step);
       },
     },
@@ -97,24 +107,88 @@ export function buildTools(client: DrivenClient): ToolRecord {
         const step: Record<string, unknown> = { action };
         if (args.selector !== undefined) step.selector = args.selector;
         if (args.expected !== undefined) step.expected = args.expected;
-        const res = await client.action(requireSession(), step as { action: string });
+        const res = await client.action(requireActive().id, step as { action: string });
         return pageViewContent(res.view, res.step);
       },
     },
 
     finish_recording: {
-      handler: async (_args) => {
-        const res = await client.stopDriven(requireSession());
-        sessionId = null;
-        return { content: [{ type: 'text' as const, text: JSON.stringify(res) }] };
+      handler: async () => {
+        const active = requireActive();
+        const res = await client.stopDriven(active.id);
+        // retain the completed recording so it can be saved by save_test
+        state.finished = { projectId: active.projectId, url: active.url, steps: res.steps };
+        state.active = null;
+        return textContent({ steps: res.steps });
       },
     },
   };
 }
 
+// ── Group: Tests — persist / validate / manage recorded tests ─────────────────
+
+function testTools(client: DrivenClient, state: RecordingState): ToolRecord {
+  // A recording can only be saved once it is finished: no session may still be active,
+  // and a finished capture must exist.
+  const requireSavable = (): FinishedRecording => {
+    if (state.active) throw new Error('Recording still in progress. Call finish_recording before saving.');
+    if (!state.finished) throw new Error('No finished recording to save. Record a session and call finish_recording first.');
+    return state.finished;
+  };
+  const resolveProjectId = (args: Record<string, unknown>): string => {
+    const projectId = (args.projectId as string | undefined) ?? state.finished?.projectId ?? state.active?.projectId;
+    if (!projectId) throw new Error('projectId is required (no recording context available).');
+    return projectId;
+  };
+
+  return {
+    save_test: {
+      handler: async (args) => {
+        const rec = requireSavable();
+        const { name, device, environmentId } = args as { name: string; device?: string; environmentId?: string | null };
+        const created = await client.createTest(rec.projectId, { name, url: rec.url, steps: rec.steps, device, environmentId });
+        return textContent({ id: created.id, name: created.name });
+      },
+    },
+
+    validate_test: {
+      handler: async () => {
+        const rec = requireSavable();
+        return textContent(await client.validateSteps({ projectId: rec.projectId, url: rec.url, steps: rec.steps }));
+      },
+    },
+
+    list_tests: {
+      handler: async (args) => {
+        const tests = await client.listTests(resolveProjectId(args));
+        return textContent(tests.map((t) => ({ id: t.id, name: t.name, url: t.url })));
+      },
+    },
+
+    get_test: {
+      handler: async (args) => textContent(await client.getTest(args.testId as string)),
+    },
+
+    delete_test: {
+      handler: async (args) => {
+        await client.deleteTest(args.testId as string);
+        return textContent({ deleted: args.testId });
+      },
+    },
+  };
+}
+
+// ── buildTools: merge the operation groups over one shared recording state ─────
+
+export function buildTools(client: DrivenClient): ToolRecord {
+  const state: RecordingState = { active: null, finished: null };
+  return { ...recordingTools(client, state), ...testTools(client, state) };
+}
+
 // ── per-tool Zod input schemas (raw shapes for registerTool) ──────────────────
 
 const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
+  // Recording
   start_recording:  { projectId: z.string(), url: z.string(), device: z.string().optional() },
   navigate:         { url: z.string() },
   click:            { selector: z.string() },
@@ -124,6 +198,12 @@ const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
   assert:           { kind: z.string(), selector: z.string().optional(), expected: z.string().optional() },
   observe:          {},
   finish_recording: {},
+  // Tests
+  save_test:        { name: z.string(), device: z.string().optional(), environmentId: z.string().optional() },
+  validate_test:    {},
+  list_tests:       { projectId: z.string().optional() },
+  get_test:         { testId: z.string() },
+  delete_test:      { testId: z.string() },
 };
 
 // ── stdio server entry point ──────────────────────────────────────────────────
