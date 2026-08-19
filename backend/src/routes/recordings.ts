@@ -4,6 +4,11 @@ import prisma from '../prisma';
 import { interpolate } from '../utils/interpolate';
 import { getRecordingStatus, startRecording, stopRecording } from '../services/recorder';
 import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import {
+  startDrivenSession, performDrivenAction, observeDrivenSession, stopDrivenSession,
+  getDrivenSession, DrivenActionError
+} from '../services/driven-recorder';
+import { StepSchema } from '../schemas/test.schema';
 
 const StartSchema = z.object({
   projectId: z.string().min(1),
@@ -94,4 +99,65 @@ export async function recordingRoutes(fastify: FastifyInstance) {
     }
     return status;
   });
+
+  // Driven recording routes (agent/MCP-driven session with per-action view capture)
+  fastify.post<{ Body: { projectId: string; url: string; device?: string } }>(
+    '/recordings/driven/start', async (req, reply) => {
+      const result = z.object({ projectId: z.string().min(1), url: z.string().min(1), device: z.string().optional() }).safeParse(req.body);
+      if (!result.success) return reply.status(400).send({ error: result.error.flatten() });
+      const { projectId, url, device } = result.data;
+      const { userId } = getAuthUser(req);
+      try {
+        await requireProjectRole(projectId, userId, ['OWNER', 'EDITOR']);
+      } catch (error) {
+        return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      }
+      return reply.code(201).send(await startDrivenSession({ projectId, url, device, userId }));
+    });
+
+  fastify.post<{ Params: { id: string }; Body: unknown }>(
+    '/recordings/driven/:id/action', async (req, reply) => {
+      const session = getDrivenSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: 'Session not found' });
+      const { userId } = getAuthUser(req);
+      try {
+        await requireProjectRole(session.projectId, userId, ['OWNER', 'EDITOR']);
+      } catch (error) {
+        return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      }
+      const parsed = StepSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+      try {
+        return await performDrivenAction(req.params.id, parsed.data);
+      } catch (err) {
+        if (err instanceof DrivenActionError) return reply.code(422).send({ error: (err as Error).message });
+        throw err;
+      }
+    });
+
+  fastify.get<{ Params: { id: string } }>(
+    '/recordings/driven/:id/observe', async (req, reply) => {
+      const session = getDrivenSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: 'Session not found' });
+      const { userId } = getAuthUser(req);
+      try {
+        await requireProjectRole(session.projectId, userId, ['OWNER', 'EDITOR']);
+      } catch (error) {
+        return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      }
+      return observeDrivenSession(req.params.id);
+    });
+
+  fastify.post<{ Params: { id: string } }>(
+    '/recordings/driven/:id/stop', async (req, reply) => {
+      const session = getDrivenSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: 'Session not found' });
+      const { userId } = getAuthUser(req);
+      try {
+        await requireProjectRole(session.projectId, userId, ['OWNER', 'EDITOR']);
+      } catch (error) {
+        return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      }
+      return stopDrivenSession(req.params.id);
+    });
 }

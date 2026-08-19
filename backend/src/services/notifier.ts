@@ -102,6 +102,8 @@ function formatStepAction(action?: string) {
       return 'Assert checked';
     case 'assertCount':
       return 'Assert count';
+    case 'upload':
+      return 'Upload file';
     default:
       return 'Unknown step';
   }

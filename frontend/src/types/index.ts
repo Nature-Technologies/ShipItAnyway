@@ -15,7 +15,8 @@ export type StepAction =
   | 'assertTitle'
   | 'assertChecked'
   | 'assertCount'
-  | 'waitForSelector';
+  | 'waitForSelector'
+  | 'upload';
 
 export interface Step {
   action: StepAction;
@@ -387,6 +388,21 @@ export interface TestRun {
   }) | null;
   environment?: Environment | null;
   schedule?: Schedule | null;
+}
+
+export interface PageView {
+  screenshot: string;
+  snapshot: string;
+  url: string;
+  title: string;
+}
+
+export interface Fixture {
+  id: string;
+  filename: string;
+  storedName: string;
+  size: number;
+  createdAt: string;
 }
 
 export interface TestRunBatch {

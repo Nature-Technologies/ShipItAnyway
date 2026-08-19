@@ -18,6 +18,7 @@ x-backend-env: &backend-env
   FRONTEND_INTERNAL_URL: ${FRONTEND_INTERNAL_URL:-http://frontend:80}
   SCREENSHOTS_DIR: /app/backend/screenshots
   TRACES_DIR: /app/backend/traces
+  FIXTURES_DIR: /app/backend/fixtures
   DISPLAY: ":99"
   NOVNC_HOST: novnc
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
@@ -43,6 +44,7 @@ services:
     volumes:
       - screenshots:/app/backend/screenshots
       - traces:/app/backend/traces
+      - fixtures:/app/backend/fixtures
       - x11_socket:/tmp/.X11-unix
     depends_on:
       postgres:
@@ -66,6 +68,25 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_HOST_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # MCP server — stdio transport. Agent CLIs (Claude Code, Codex, Grok) connect by spawning this
+  # container: `docker run -i --network <project>_default -e BACKEND_URL=... -e BACKEND_TOKEN=...
+  # shipitanyway-mcp-server`. The container stays idle in compose; it is only useful when an agent
+  # pipes stdin/stdout to it. For local dev without compose, run:
+  #   BACKEND_URL=http://localhost:3000 BACKEND_TOKEN=<token> npx tsx mcp-server/src/index.ts
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp-server/Dockerfile
+    restart: unless-stopped
+    stdin_open: true
+    tty: false
+    environment:
+      BACKEND_URL: http://backend:3000
+      BACKEND_TOKEN: ${BACKEND_TOKEN:-}
     depends_on:
       backend:
         condition: service_healthy

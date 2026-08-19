@@ -25,6 +25,7 @@ import { projectRoutes } from './routes/projects';
 import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
+import { fixtureRoutes } from './routes/fixtures';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -32,6 +33,7 @@ const envCandidates = [
 ];
 const screenshotsDir = path.resolve(process.env.SCREENSHOTS_DIR || './screenshots');
 const tracesDir = path.resolve(process.env.TRACES_DIR || './traces');
+const fixturesDir = path.resolve(process.env.FIXTURES_DIR || './fixtures');
 const defaultFrontendOrigins = [
   'http://localhost:5173',
   'http://localhost:80',
@@ -69,6 +71,7 @@ for (const envPath of envCandidates) {
 
 fs.mkdirSync(screenshotsDir, { recursive: true });
 fs.mkdirSync(tracesDir, { recursive: true });
+fs.mkdirSync(fixturesDir, { recursive: true });
 
 async function start() {
   const fastify = Fastify({ logger: true });
@@ -191,6 +194,8 @@ async function start() {
     }
   });
 
+  await fastify.register(import('@fastify/multipart'), { limits: { fileSize: 50 * 1024 * 1024 } });
+
   await fastify.register(projectRoutes);
   await fastify.register(environmentRoutes);
   await fastify.register(channelRoutes);
@@ -202,6 +207,7 @@ async function start() {
   await fastify.register(runRoutes);
   await fastify.register(webhookRoutes);
   await fastify.register(recordingRoutes);
+  await fastify.register(fixtureRoutes);
   await startTestWorker();
   await schedulerService.loadAll();
 

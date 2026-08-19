@@ -1,6 +1,7 @@
 packages:
   - frontend
   - backend
+  - mcp-server
 
 allowBuilds:
   '@prisma/client': true
