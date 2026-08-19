@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isValidTimezone } from '../src/utils/timezone';
-import { getNextRunAt } from '../src/routes/schedules';
+import { getNextRunAt } from '../src/utils/timezone';
 
 test('isValidTimezone accepts IANA zones and rejects junk', () => {
   assert.equal(isValidTimezone('America/New_York'), true);

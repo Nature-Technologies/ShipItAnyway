@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import prisma from '../src/prisma';
+import redis from '../src/redis';
 import { testQueue } from '../src/queue/queue';
 import { fireSchedule } from '../src/services/schedule-runner';
 
@@ -64,5 +65,6 @@ test('fireSchedule creates a TestRunBatch with one run per enabled data case', a
     await testQueue.resume().catch(() => undefined);
     await cleanup(project.id, user.id);
     await testQueue.drain().catch(() => undefined);
+    redis.disconnect();
   }
 });

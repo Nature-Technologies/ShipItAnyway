@@ -8,7 +8,8 @@ class SchedulerService {
     await scheduleQueue.upsertJobScheduler(
       schedule.id,
       { pattern: schedule.cron, tz: schedule.timezone ?? 'UTC' },
-      { name: 'fire', data: { scheduleId: schedule.id } }
+      // ponytail: bounded fire-job history
+      { name: 'fire', data: { scheduleId: schedule.id }, opts: { removeOnComplete: true, removeOnFail: 100 } }
     );
   }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import prisma from '../src/prisma';
+import redis from '../src/redis';
 import { testQueue } from '../src/queue/queue';
 import { runRoutes } from '../src/routes/runs';
 
@@ -57,5 +58,6 @@ test('manual run is created with trigger MANUAL', async () => {
   } finally {
     await app.close(); await cleanup(project.id, user.id);
     await testQueue.drain().catch(() => undefined);
+    redis.disconnect();
   }
 });

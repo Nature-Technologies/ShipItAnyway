@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import prisma from '../src/prisma';
+import redis from '../src/redis';
 import { testQueue } from '../src/queue/queue';
 import { scheduleRoutes } from '../src/routes/schedules';
 
@@ -62,5 +63,6 @@ test('POST /schedules/:id/run creates a run linked to the schedule', async () =>
     await testQueue.resume().catch(() => undefined);
     await app.close(); await cleanup(project.id, user.id);
     await testQueue.drain().catch(() => undefined);
+    redis.disconnect();
   }
 });

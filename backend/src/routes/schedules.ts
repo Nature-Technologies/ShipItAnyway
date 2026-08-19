@@ -1,12 +1,11 @@
 import cron from 'node-cron';
-import { parseExpression } from 'cron-parser';
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { schedulerService } from '../services/scheduler';
 import { fireSchedule } from '../services/schedule-runner';
 import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
-import { isValidTimezone } from '../utils/timezone';
+import { isValidTimezone, getNextRunAt } from '../utils/timezone';
 
 const ScheduleSchema = z.object({
   name: z.string().min(1).max(100),
@@ -99,17 +98,6 @@ function groupRunsByTick(runs: Array<{
       }))
     };
   });
-}
-
-export function getNextRunAt(
-  cronExpression: string, referenceDate: Date, timezone?: string | null
-): Date | null {
-  try {
-    return parseExpression(cronExpression, { currentDate: referenceDate, tz: timezone ?? 'UTC' })
-      .next().toDate();
-  } catch {
-    return null;
-  }
 }
 
 export async function scheduleRoutes(fastify: FastifyInstance) {

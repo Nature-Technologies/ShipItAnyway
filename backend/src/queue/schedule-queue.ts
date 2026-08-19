@@ -12,6 +12,9 @@ export function startScheduleWorker(): void {
     async (job) => { await fireSchedule(job.data.scheduleId as string); },
     { connection: redis }
   );
+  scheduleWorker.on('failed', (job, err) =>
+    console.error(`[ScheduleWorker] job ${job?.id} (scheduleId=${job?.data?.scheduleId}) failed:`, err)
+  );
 }
 
 export async function stopScheduleWorker(): Promise<void> {
