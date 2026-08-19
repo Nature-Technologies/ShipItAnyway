@@ -92,7 +92,7 @@ function selectorToExpression(
   return `page.locator(${templateToExpression(selector, variables, useEnvVars)})`;
 }
 
-function stepToCode(step: Step, variables: Record<string, string>, useEnvVars: boolean, indent = '  '): string {
+export function stepToCode(step: Step, variables: Record<string, string>, useEnvVars: boolean, indent = '  '): string {
   const selectorExpr = step.selector ? selectorToExpression(step.selector, variables, useEnvVars) : '';
   const valueExpr = step.value ? templateToExpression(step.value, variables, useEnvVars) : '""';
   const expectedExpr = step.expected ? templateToExpression(step.expected, variables, useEnvVars) : '""';
@@ -110,6 +110,9 @@ function stepToCode(step: Step, variables: Record<string, string>, useEnvVars: b
       return `${indent}await page.keyboard.press(${valueExpr});`;
     case 'selectOption':
       return `${indent}await ${selectorExpr}.selectOption(${valueExpr});`;
+    case 'upload':
+      // ponytail: exporter references fixtureId; bundling the real file is a follow-on
+      return `${indent}await ${selectorExpr}.setInputFiles(${valueExpr});`;
     case 'assertVisible':
       return `${indent}await expect(${selectorExpr}).toBeVisible();`;
     case 'assertHidden':

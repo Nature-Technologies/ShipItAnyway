@@ -14,7 +14,8 @@ export interface Step {
     | 'assertTitle'
     | 'assertChecked'
     | 'assertCount'
-    | 'waitForSelector';
+    | 'waitForSelector'
+    | 'upload';
   selector?: string;
   selectorCandidates?: string[];
   elementText?: string;

@@ -15,7 +15,8 @@ export type StepAction =
   | 'assertTitle'
   | 'assertChecked'
   | 'assertCount'
-  | 'waitForSelector';
+  | 'waitForSelector'
+  | 'upload';
 
 export interface Step {
   action: StepAction;

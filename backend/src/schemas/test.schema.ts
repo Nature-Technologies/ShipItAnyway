@@ -35,7 +35,8 @@ export const StepSchema = z.object({
     'assertTitle',
     'assertChecked',
     'assertCount',
-    'waitForSelector'
+    'waitForSelector',
+    'upload'
   ]),
   selector: z.string().optional(),
   selectorCandidates: z.array(z.string()).optional(),

@@ -125,6 +125,11 @@ export async function validateSteps(url: string, steps: Step[], device?: string)
         continue;
       }
 
+      if (step.action === 'upload') {
+        results.push({ index, status: 'skipped', selector: step.selector });
+        continue;
+      }
+
       if (step.action === 'assertURL' || step.action === 'assertTitle') {
         if (step.expected && hasUnresolvedVariables(step.expected)) {
           results.push({ index, status: 'skipped', selector: step.selector });

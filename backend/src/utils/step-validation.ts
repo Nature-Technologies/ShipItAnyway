@@ -53,6 +53,11 @@ export function validateStepRequirements(step: Step): StepRequirementIssue | nul
         ...(step.selector?.trim() ? {} : { selector: required('Target') }),
         ...(step.value?.trim() ? {} : { value: required('Option value') })
       });
+    case 'upload':
+      return buildIssue({
+        ...(step.selector?.trim() ? {} : { selector: required('Target') }),
+        ...(step.value?.trim() ? {} : { value: required('Fixture') })
+      });
     case 'assertText':
       return buildIssue({
         ...(step.selector?.trim() ? {} : { selector: required('Target') }),

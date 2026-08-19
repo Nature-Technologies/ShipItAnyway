@@ -17,7 +17,8 @@ import {
   HolderOutlined,
   CopyOutlined,
   TagOutlined,
-  UnorderedListOutlined
+  UnorderedListOutlined,
+  UploadOutlined
 } from '@ant-design/icons';
 import { Button, Card, Checkbox, Dropdown, Input, Select, Space, Tooltip, Typography } from 'antd';
 import type { ReactNode } from 'react';
@@ -53,7 +54,8 @@ const ACTION_OPTIONS: ActionOption[] = [
   { value: 'assertTitle', label: 'Assert title', icon: <TagOutlined />, group: 'Assertions', needsSelector: false, needsValue: false, needsExpected: true },
   { value: 'assertChecked', label: 'Assert checked', icon: <CheckSquareOutlined />, group: 'Assertions', needsSelector: true, needsValue: false, needsExpected: false },
   { value: 'assertCount', label: 'Assert count', icon: <OrderedListOutlined />, group: 'Assertions', needsSelector: true, needsValue: false, needsExpected: true },
-  { value: 'waitForSelector', label: 'Wait for element', icon: <EyeOutlined />, group: 'Actions', needsSelector: true, needsValue: false, needsExpected: false }
+  { value: 'waitForSelector', label: 'Wait for element', icon: <EyeOutlined />, group: 'Actions', needsSelector: true, needsValue: false, needsExpected: false },
+  { value: 'upload', label: 'Upload file', icon: <UploadOutlined />, group: 'Actions', needsSelector: true, needsValue: true, needsExpected: false }
 ];
 
 interface Props {

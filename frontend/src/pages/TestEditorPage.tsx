@@ -185,7 +185,8 @@ function formatStepIssueSummary(step: Step, index: number, issue: StepIssue) {
     assertTitle: 'Assert title',
     assertChecked: 'Assert checked',
     assertCount: 'Assert count',
-    waitForSelector: 'Wait for element'
+    waitForSelector: 'Wait for element',
+    upload: 'Upload file'
   };
   const label = `${index + 1}. ${actionLabels[step.action] ?? step.action}`;
   const fieldMessage = issue.selector ?? issue.value ?? issue.expected ?? issue.message;
