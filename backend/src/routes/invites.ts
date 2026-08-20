@@ -14,14 +14,17 @@ const CreateInviteSchema = z.object({
   teamId: z.string().optional()
 });
 
-// groupId (or neither) ⇒ superadmin; teamId-only ⇒ teams_manage on a project the team is attached to, else superadmin.
+// groupId (or neither) ⇒ superadmin; teamId-only ⇒ teams_manage on EVERY project the team is
+// attached to (a team is the unit of membership, so inviting onto it grants access to all its
+// projects — the delegate must manage all of them), else superadmin.
 async function assertInviteAuthority(userId: string, groupId?: string, teamId?: string) {
   if (groupId || !teamId) { await requireSuperadmin(userId); return; }
   const links = await prisma.teamProject.findMany({ where: { teamId }, select: { projectId: true } });
-  for (const { projectId } of links) {
-    if (await can(projectId, userId, 'teams_manage')) return;
+  if (links.length > 0) {
+    const authorized = await Promise.all(links.map(({ projectId }) => can(projectId, userId, 'teams_manage')));
+    if (authorized.every(Boolean)) return;
   }
-  await requireSuperadmin(userId); // throws 403 when the delegate lacks scope
+  await requireSuperadmin(userId); // throws 403 when the delegate lacks full authority
 }
 
 // teams whose attached projects the user has teams_manage on (for delegate invite listing)

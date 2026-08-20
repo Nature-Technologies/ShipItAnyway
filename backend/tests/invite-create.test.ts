@@ -57,6 +57,17 @@ test('teams_manage delegate may invite with a teamId on their project but is 403
     assert.equal(ok.statusCode, 201);
     const forbidden = await app.inject({ method: 'POST', url: '/invites', payload: { email: `b-${uniq()}@x.io`, groupId: 'any' } });
     assert.equal(forbidden.statusCode, 403);
+
+    // F1: a SEPARATE target team spanning `project` (delegate manages) + a second project the
+    // delegate does NOT manage → 403 (no privilege escalation). Delegate is not a member of this team.
+    const otherProject = await prisma.project.create({ data: { name: `inv-other-${uniq()}` } });
+    const targetTeam = await prisma.team.create({
+      data: { name: `inv-target-${uniq()}`, projects: { create: [{ projectId: project.id }, { projectId: otherProject.id }] } }
+    });
+    const escalate = await app.inject({ method: 'POST', url: '/invites', payload: { email: `c-${uniq()}@x.io`, teamId: targetTeam.id } });
+    assert.equal(escalate.statusCode, 403);
+    await prisma.team.delete({ where: { id: targetTeam.id } }).catch(() => undefined);
+    await prisma.project.delete({ where: { id: otherProject.id } }).catch(() => undefined);
   } finally {
     await app.close();
     await prisma.invite.deleteMany({ where: { teamId: team.id } });
