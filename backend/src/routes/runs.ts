@@ -96,6 +96,7 @@ export async function runRoutes(fastify: FastifyInstance) {
       data: {
         testId: test.id,
         status: 'PENDING',
+        trigger: 'MANUAL',
         environmentId: body.data.environmentId,
         ...(dataCaseSnapshot ?? {})
       }
@@ -168,6 +169,7 @@ export async function runRoutes(fastify: FastifyInstance) {
           data: {
             testId: test.id,
             status: 'PENDING',
+            trigger: 'MANUAL',
             environmentId: body.data.environmentId,
             batchId: batch.id,
             batchOrder,

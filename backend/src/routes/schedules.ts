@@ -1,10 +1,11 @@
 import cron from 'node-cron';
-import { parseExpression } from 'cron-parser';
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { schedulerService } from '../services/scheduler';
+import { fireSchedule } from '../services/schedule-runner';
 import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { isValidTimezone, getNextRunAt } from '../utils/timezone';
 
 const ScheduleSchema = z.object({
   name: z.string().min(1).max(100),
@@ -12,7 +13,8 @@ const ScheduleSchema = z.object({
   suiteId: z.string().optional(),
   testId: z.string().optional(),
   environmentId: z.string().optional(),
-  enabled: z.boolean().default(true)
+  enabled: z.boolean().default(true),
+  timezone: z.string().refine(isValidTimezone, 'Invalid IANA timezone').optional().nullable()
 }).refine((value) => Boolean(value.suiteId) !== Boolean(value.testId), {
   message: 'Either suiteId or testId is required'
 });
@@ -23,7 +25,8 @@ const UpdateScheduleSchema = z.object({
   suiteId: z.string().optional().nullable(),
   testId: z.string().optional().nullable(),
   environmentId: z.string().optional().nullable(),
-  enabled: z.boolean().optional()
+  enabled: z.boolean().optional(),
+  timezone: z.string().refine(isValidTimezone, 'Invalid IANA timezone').optional().nullable()
 });
 
 async function validateScheduleTarget(projectId: string, suiteId?: string | null, testId?: string | null, environmentId?: string | null) {
@@ -97,17 +100,6 @@ function groupRunsByTick(runs: Array<{
   });
 }
 
-function getNextRunAt(cronExpression: string, referenceDate: Date) {
-  try {
-    const interval = parseExpression(cronExpression, {
-      currentDate: referenceDate
-    });
-    return interval.next().toDate();
-  } catch {
-    return null;
-  }
-}
-
 export async function scheduleRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/schedules', async (req, reply) => {
     const { userId } = getAuthUser(req);
@@ -148,7 +140,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
         lastRunAt: lastRun?.startedAt ?? schedule.lastRunAt,
         lastRunStatus: lastRun?.status ?? null,
         nextRunAt: schedule.enabled
-          ? getNextRunAt(schedule.cron, lastRun?.startedAt ?? schedule.lastRunAt ?? schedule.createdAt)
+          ? getNextRunAt(schedule.cron, lastRun?.startedAt ?? schedule.lastRunAt ?? schedule.createdAt, schedule.timezone)
           : null,
         createdAt: schedule.createdAt
       };
@@ -242,7 +234,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
         }
       });
 
-      schedulerService.register(schedule);
+      await schedulerService.register(schedule);
       return reply.status(201).send(schedule);
     } catch (error) {
       if (error instanceof Error) {
@@ -274,7 +266,8 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
       suiteId: result.data.suiteId === undefined ? current.suiteId : result.data.suiteId,
       testId: result.data.testId === undefined ? current.testId : result.data.testId,
       environmentId: result.data.environmentId === undefined ? current.environmentId : result.data.environmentId,
-      enabled: result.data.enabled ?? current.enabled
+      enabled: result.data.enabled ?? current.enabled,
+      timezone: result.data.timezone === undefined ? current.timezone : result.data.timezone
     };
 
     if (!cron.validate(next.cron)) {
@@ -296,17 +289,37 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
           suiteId: next.suiteId ?? null,
           testId: next.testId ?? null,
           environmentId: next.environmentId ?? null,
-          enabled: next.enabled
+          enabled: next.enabled,
+          timezone: next.timezone ?? null
         }
       });
 
-      schedulerService.register(schedule);
+      await schedulerService.register(schedule);
       return schedule;
     } catch (error) {
       if (error instanceof Error) {
         return reply.status(404).send({ error: error.message });
       }
       return reply.status(500).send({ error: 'Failed to update schedule' });
+    }
+  });
+
+  fastify.post<{ Params: { id: string } }>('/schedules/:id/run', async (req, reply) => {
+    const { userId } = getAuthUser(req);
+    const schedule = await loadScheduleOr404(req.params.id);
+    if (!schedule) return reply.status(404).send({ error: 'Schedule not found' });
+    try {
+      await requireProjectRole(schedule.projectId, userId, ['OWNER', 'EDITOR']);
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+    try {
+      return reply.code(202).send(await fireSchedule(schedule.id, { trigger: 'MANUAL' }));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Schedule not found') {
+        return reply.status(404).send({ error: error.message });
+      }
+      return reply.status(500).send({ error: 'Failed to run schedule' });
     }
   });
 
@@ -318,7 +331,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
       const { userId } = getAuthUser(req);
       await requireProjectRole(current.projectId, userId, ['OWNER', 'EDITOR']);
 
-      schedulerService.unregister(req.params.id);
+      await schedulerService.unregister(req.params.id);
       await prisma.schedule.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
     } catch (error) {

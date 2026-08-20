@@ -144,6 +144,7 @@ export const createSchedule = (
   data: {
     name: string;
     cron: string;
+    timezone?: string;
     suiteId?: string;
     testId?: string;
     environmentId?: string;
@@ -156,6 +157,7 @@ export const updateSchedule = (
   data: Partial<{
     name: string;
     cron: string;
+    timezone: string | null;
     suiteId: string | null;
     testId: string | null;
     environmentId: string | null;
@@ -165,6 +167,9 @@ export const updateSchedule = (
 
 export const deleteSchedule = (id: string) =>
   api.delete(`/schedules/${id}`);
+
+export const runSchedule = (id: string) =>
+  api.post('/schedules/' + id + '/run');
 
 export const getEnvironments = (projectId: string) =>
   api.get<Environment[]>(`/projects/${projectId}/environments`).then((r) => r.data);

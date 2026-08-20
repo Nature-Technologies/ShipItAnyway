@@ -177,7 +177,7 @@ export interface DashboardRecentRun {
   status: RunStatus;
   durationMs: number | null;
   startedAt: string;
-  trigger: 'Manual' | 'Schedule';
+  trigger: 'Manual' | 'Schedule' | 'CI';
   scheduleName: string | null;
   environmentId: string | null;
 }
@@ -289,6 +289,7 @@ export interface Schedule {
   id: string;
   name: string;
   cron: string;
+  timezone?: string | null;
   projectId: string;
   suiteId?: string | null;
   suite?: Suite | null;

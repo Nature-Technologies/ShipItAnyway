@@ -1,34 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Badge, Button, Card, Col, Dropdown, Input, Layout, Modal, Radio, Row, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useState } from 'react';
+import { Badge, Button, Card, Col, Dropdown, Layout, Modal, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { AppstoreOutlined, EllipsisOutlined, FileTextOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { createSchedule, deleteSchedule, getEnvironments, getProject, getSchedules, getSuites, runSuite, runTestWithEnvironment, updateSchedule } from '../api/client';
+import { createSchedule, deleteSchedule, getEnvironments, getProject, getSchedules, getSuites, runSchedule, updateSchedule } from '../api/client';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
 import RunStatusBadge from '../components/RunStatusBadge';
-import type { Environment, ProjectWorkspace, Schedule, Suite, Test } from '../types';
+import { ScheduleFormModal, SchedulePayload, describeCron } from '../components/ScheduleFormModal';
+import type { Environment, ProjectWorkspace, Schedule, Suite } from '../types';
+import { resolveScheduleTimezone } from '../utils/scheduleTimezone';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
 
-const CRON_PRESETS = [
-  { label: 'Every hour', value: '0 * * * *' },
-  { label: 'Every day 9am', value: '0 9 * * *' },
-  { label: 'Every day 2am', value: '0 2 * * *' },
-  { label: 'Every Monday', value: '0 9 * * 1' },
-  { label: 'Custom...', value: 'custom' }
-];
-
-const APP_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
-function formatCompactDateTime(value?: string | null) {
+function formatCompactDateTime(value?: string | null, timeZone?: string) {
   if (!value) return '—';
   return new Date(value).toLocaleString([], {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    ...(timeZone ? { timeZone } : {})
   });
 }
 
@@ -63,6 +56,7 @@ function formatRelativeFutureTime(value: string) {
 }
 
 function formatNextRun(schedule: Schedule) {
+  const timeZone = resolveScheduleTimezone(schedule);
   if (!schedule.enabled) {
     return { primary: 'Paused', secondary: '', overdue: false };
   }
@@ -73,7 +67,7 @@ function formatNextRun(schedule: Schedule) {
   const nextRunAt = new Date(schedule.nextRunAt).getTime();
   if (nextRunAt <= Date.now()) {
     return {
-      primary: formatCompactDateTime(schedule.nextRunAt),
+      primary: formatCompactDateTime(schedule.nextRunAt, timeZone),
       secondary: '',
       overdue: true
     };
@@ -81,41 +75,9 @@ function formatNextRun(schedule: Schedule) {
 
   return {
     primary: formatRelativeFutureTime(schedule.nextRunAt),
-    secondary: formatCompactDateTime(schedule.nextRunAt),
+    secondary: formatCompactDateTime(schedule.nextRunAt, timeZone),
     overdue: false
   };
-}
-
-function describeCron(cron: string) {
-  const map: Record<string, string> = {
-    '* * * * *': 'Runs every minute',
-    '*/15 * * * *': 'Runs every 15 minutes',
-    '0 * * * *': 'Runs every hour',
-    '0 2 * * *': 'Runs every day at 02:00',
-    '0 9 * * *': 'Runs every day at 09:00',
-    '0 9 * * 1': 'Runs every Monday at 09:00'
-  };
-
-  if (map[cron]) return map[cron];
-
-  const dailyMatch = cron.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
-  if (dailyMatch) {
-    const hour = String(Number(dailyMatch[2])).padStart(2, '0');
-    const minute = String(Number(dailyMatch[1])).padStart(2, '0');
-    return `Runs every day at ${hour}:${minute}`;
-  }
-
-  return 'Custom cron schedule';
-}
-
-function usesVariables(value?: string | null) {
-  return Boolean(value && /{{\s*[\w.-]+\s*}}/.test(value));
-}
-
-function testUsesVariables(test?: Test | null) {
-  if (!test) return false;
-  if (usesVariables(test.url)) return true;
-  return test.steps.some((step) => usesVariables(step.selector) || usesVariables(step.value) || usesVariables(step.expected));
 }
 
 function getScheduleTargetSummary(schedule: Schedule) {
@@ -151,16 +113,8 @@ export default function SchedulesPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [scheduleMode, setScheduleMode] = useState<'create' | 'edit'>('create');
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
-  const [name, setName] = useState('');
-  const [cronPreset, setCronPreset] = useState<string>('0 2 * * *');
-  const [isCustomCron, setIsCustomCron] = useState(false);
-  const [customCron, setCustomCron] = useState('0 2 * * *');
-  const [targetType, setTargetType] = useState<'suite' | 'test'>('suite');
-  const [selectedSuiteId, setSelectedSuiteId] = useState<string | undefined>(undefined);
-  const [selectedTestId, setSelectedTestId] = useState<string | undefined>(undefined);
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>(undefined);
-  const [enabled, setEnabled] = useState(true);
 
   const load = async () => {
     setLoading(true);
@@ -184,150 +138,54 @@ export default function SchedulesPage() {
     void load();
   }, [projectId]);
 
-  const projectTests = useMemo(() => project?.tests ?? [], [project]);
-  const selectedSuite = useMemo(() => suites.find((suite) => suite.id === selectedSuiteId), [selectedSuiteId, suites]);
-  const selectedTest = useMemo(() => projectTests.find((test) => test.id === selectedTestId), [projectTests, selectedTestId]);
-  const selectedCron = isCustomCron ? customCron.trim() : cronPreset;
-  const selectedTargetRequiresEnvironment = useMemo(() => {
-    if (targetType === 'suite') {
-      if (!selectedSuite) return false;
-      return selectedSuite.testIds.some((testId) => testUsesVariables(projectTests.find((test) => test.id === testId)));
-    }
-
-    return testUsesVariables(selectedTest);
-  }, [projectTests, selectedSuite, selectedTest, targetType]);
-  const environmentWarning = selectedTargetRequiresEnvironment && !selectedEnvironmentId;
-
-  const resetForm = () => {
-    setEditingSchedule(null);
-    setName('');
-    setCronPreset('0 2 * * *');
-    setIsCustomCron(false);
-    setCustomCron('0 2 * * *');
-    setTargetType('suite');
-    setSelectedSuiteId(suites[0]?.id);
-    setSelectedTestId(projectTests[0]?.id);
-    setSelectedEnvironmentId(undefined);
-    setEnabled(true);
-  };
+  const projectTests = project?.tests ?? [];
 
   const openCreate = () => {
-    resetForm();
+    setScheduleMode('create');
+    setEditingSchedule(null);
     setModalOpen(true);
   };
 
   const openEdit = (schedule: Schedule) => {
+    setScheduleMode('edit');
     setEditingSchedule(schedule);
-    setName(schedule.name);
-    setEnabled(schedule.enabled);
-    setSelectedEnvironmentId(schedule.environmentId ?? undefined);
-
-    if (schedule.suiteId) {
-      setTargetType('suite');
-      setSelectedSuiteId(schedule.suiteId);
-      setSelectedTestId(undefined);
-    } else {
-      setTargetType('test');
-      setSelectedTestId(schedule.testId ?? undefined);
-      setSelectedSuiteId(undefined);
-    }
-
-    const preset = CRON_PRESETS.find((item) => item.value === schedule.cron)?.value ?? 'custom';
-    setCronPreset(preset);
-    setIsCustomCron(preset === 'custom');
-    setCustomCron(schedule.cron);
     setModalOpen(true);
   };
 
   const openDuplicate = (schedule: Schedule) => {
-    setEditingSchedule(null);
-    setName(`${schedule.name} Copy`);
-    setEnabled(true);
-    setSelectedEnvironmentId(schedule.environmentId ?? undefined);
-
-    if (schedule.suiteId) {
-      setTargetType('suite');
-      setSelectedSuiteId(schedule.suiteId);
-      setSelectedTestId(undefined);
-    } else {
-      setTargetType('test');
-      setSelectedTestId(schedule.testId ?? undefined);
-      setSelectedSuiteId(undefined);
-    }
-
-    const preset = CRON_PRESETS.find((item) => item.value === schedule.cron)?.value ?? 'custom';
-    setCronPreset(preset);
-    setIsCustomCron(preset === 'custom');
-    setCustomCron(schedule.cron);
+    setScheduleMode('create');
+    setEditingSchedule(schedule); // passed as prefill source to the modal
     setModalOpen(true);
   };
 
   const runScheduleNow = async (schedule: Schedule) => {
     try {
-      if (schedule.suiteId) {
-        const result = await runSuite(schedule.suiteId, schedule.environmentId ?? undefined);
-        if (result.jobs.length > 0) {
-          navigate(`/runs/${result.jobs[0].testRunId}`);
-        }
-      } else if (schedule.testId) {
-        const result = await runTestWithEnvironment(schedule.testId, schedule.environmentId ?? undefined);
-        navigate(`/runs/${result.testRunId}`);
-      }
+      await runSchedule(schedule.id);
       message.success('Schedule run started');
+      navigate(`/schedules/${schedule.id}/history`);
     } catch {
       message.error('Failed to run schedule');
     }
   };
 
-  const handleSave = async () => {
-    if (!name.trim()) {
-      message.error('Schedule name is required');
-      return;
-    }
-
-    const cron = isCustomCron ? customCron.trim() : cronPreset;
-    if (!cron.trim()) {
-      message.error('Cron is required');
-      return;
-    }
-
-    const targetSuiteId = targetType === 'suite' ? selectedSuiteId : undefined;
-    const targetTestId = targetType === 'test' ? selectedTestId : undefined;
-
-    if (!targetSuiteId && !targetTestId) {
-      message.error('Select a suite or a test');
-      return;
-    }
-
-    if (selectedTargetRequiresEnvironment && !selectedEnvironmentId) {
-      message.error('Select an environment for checks that use variables');
-      return;
-    }
-
+  const handleSubmit = async (payload: SchedulePayload) => {
     setSaving(true);
     try {
-      if (editingSchedule) {
-        await updateSchedule(editingSchedule.id, {
-          name: name.trim(),
-          cron: cron.trim(),
-          suiteId: targetSuiteId ?? null,
-          testId: targetTestId ?? null,
-          environmentId: selectedEnvironmentId ?? null,
-          enabled
-        });
+      if (scheduleMode === 'edit' && editingSchedule) {
+        await updateSchedule(editingSchedule.id, payload);
         message.success('Schedule updated');
       } else {
         await createSchedule(projectId!, {
-          name: name.trim(),
-          cron: cron.trim(),
-          suiteId: targetSuiteId ?? undefined,
-          testId: targetTestId ?? undefined,
-          environmentId: selectedEnvironmentId ?? undefined,
-          enabled
+          name: payload.name,
+          cron: payload.cron,
+          timezone: payload.timezone,
+          suiteId: payload.suiteId ?? undefined,
+          testId: payload.testId ?? undefined,
+          environmentId: payload.environmentId ?? undefined,
+          enabled: payload.enabled
         });
         message.success('Schedule created');
       }
-
       setModalOpen(false);
       await load();
     } finally {
@@ -517,154 +375,17 @@ export default function SchedulesPage() {
         </Row>
       </Content>
 
-      <Modal
-        title={editingSchedule ? `Edit Schedule: ${editingSchedule.name}` : 'New Schedule'}
+      <ScheduleFormModal
         open={modalOpen}
-        onOk={() => void handleSave()}
+        mode={scheduleMode}
+        schedule={editingSchedule}
+        suites={suites}
+        checks={projectTests}
+        environments={environments}
+        saving={saving}
         onCancel={() => setModalOpen(false)}
-        confirmLoading={saving}
-        width={780}
-        centered
-        style={{ top: 24 }}
-        styles={{
-          body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' }
-        }}
-        okText={editingSchedule ? 'Save changes' : 'Create schedule'}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size={16}>
-          <div>
-            <Text type="secondary">Schedule name</Text>
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nightly smoke" />
-          </div>
-
-          <div>
-            <Text type="secondary">Cron preset</Text>
-            <Select
-              value={cronPreset}
-              style={{ width: '100%', marginTop: 8 }}
-              options={CRON_PRESETS}
-              onChange={(value) => {
-                setCronPreset(value);
-                if (value === 'custom') {
-                  setIsCustomCron(true);
-                } else {
-                  setIsCustomCron(false);
-                  setCustomCron(value);
-                }
-              }}
-            />
-            <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: '#fafafa', border: '1px solid #f0f0f0' }}>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                Cron expression
-              </Text>
-              <Text strong style={{ display: 'block', fontFamily: 'monospace' }}>
-                {selectedCron || '—'}
-              </Text>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                {describeCron(selectedCron)} {selectedCron ? APP_TIMEZONE : ''}
-              </Text>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                Timezone
-              </Text>
-              <Tag style={{ marginTop: 4 }}>{APP_TIMEZONE}</Tag>
-            </div>
-          </div>
-
-          {isCustomCron && (
-            <div>
-              <Text type="secondary">Custom cron</Text>
-              <Input
-                value={customCron}
-                onChange={(event) => setCustomCron(event.target.value)}
-                placeholder="0 9 * * *"
-                style={{ marginTop: 8 }}
-              />
-            </div>
-          )}
-
-          <div>
-            <Text type="secondary">Target type</Text>
-            <Radio.Group
-              style={{ display: 'block', marginTop: 8 }}
-              value={targetType}
-              onChange={(event) => setTargetType(event.target.value)}
-            >
-              <Space>
-                <Radio value="suite">Suite</Radio>
-                <Radio value="test">Check</Radio>
-              </Space>
-            </Radio.Group>
-          </div>
-
-          {targetType === 'suite' ? (
-            <div>
-              <Text type="secondary">Select suite</Text>
-              <Select
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="Select a suite"
-                value={selectedSuiteId}
-                onChange={setSelectedSuiteId}
-                options={suites.map((suite) => ({
-                  value: suite.id,
-                  label: `${suite.name} · ${suite.testIds.length} checks`
-                }))}
-              />
-            </div>
-          ) : (
-            <div>
-              <Text type="secondary">Select check</Text>
-              <Select
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="Select a check"
-                value={selectedTestId}
-                onChange={setSelectedTestId}
-                options={projectTests.map((test) => ({
-                  value: test.id,
-                  label: `${test.name} · ${test.device?.trim() ? test.device : 'Desktop'} · ${test.steps.length} steps`
-                }))}
-              />
-            </div>
-          )}
-
-          <div>
-            <Text type="secondary">Environment</Text>
-            <Select
-              style={{ width: '100%', marginTop: 8 }}
-              placeholder="No environment selected"
-              allowClear
-              value={selectedEnvironmentId}
-              onChange={(value) => setSelectedEnvironmentId(value)}
-              options={environments.map((environment) => ({
-                value: environment.id,
-                label: `${environment.name} · ${Object.keys(environment.variables).length} variables`
-              }))}
-            />
-            {environmentWarning && (
-              <Alert
-                style={{ marginTop: 12 }}
-                type="warning"
-                showIcon
-                message="No environment selected"
-                description="Checks using variables like {{BASE_URL}} may fail."
-              />
-            )}
-          </div>
-
-          <div>
-            <Text type="secondary">Status</Text>
-            <Radio.Group
-              style={{ display: 'flex', gap: 12, marginTop: 8 }}
-              value={enabled ? 'active' : 'paused'}
-              onChange={(event) => setEnabled(event.target.value === 'active')}
-            >
-              <Radio value="active">Active</Radio>
-              <Radio value="paused">Paused</Radio>
-            </Radio.Group>
-          </div>
-        </Space>
-      </Modal>
+        onSubmit={(payload) => void handleSubmit(payload)}
+      />
       <AppFooter />
     </Layout>
   );
