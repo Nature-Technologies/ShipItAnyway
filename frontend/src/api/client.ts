@@ -31,7 +31,8 @@ export type TestPayload = {
 };
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000'
+  // optional-chain so the module also imports under node/tsx tests where import.meta.env is absent
+  baseURL: (import.meta as { env?: Record<string, string> }).env?.VITE_BACKEND_URL ?? 'http://localhost:3000'
 });
 
 export const getProjects = () =>
@@ -338,3 +339,9 @@ export const uploadFixture = (projectId: string, file: File) => {
 
 export const listFixtures = (projectId: string) =>
   api.get<{ fixtures: Fixture[] }>(`/projects/${projectId}/fixtures`).then((r) => r.data.fixtures);
+
+export const validateInvite = (token: string) =>
+  api.get<{ email: string }>('/auth/invite', { params: { token } }).then((r) => r.data);
+
+export const acceptInvite = (token: string, password: string) =>
+  api.post<{ ok: true }>('/auth/accept-invite', { token, password }).then((r) => r.data);

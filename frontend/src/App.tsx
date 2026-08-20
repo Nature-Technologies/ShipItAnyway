@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ConfigProvider, theme } from 'antd';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
+import AcceptInvitePage from './pages/AcceptInvitePage';
 import DashboardPage from './pages/DashboardPage';
 import ProjectsPage from './pages/ProjectsPage';
 import EnvironmentsPage from './pages/EnvironmentsPage';
@@ -37,6 +38,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
             <Route
               path="/*"
               element={
