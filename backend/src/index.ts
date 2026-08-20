@@ -27,6 +27,9 @@ import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
 import { fixtureRoutes } from './routes/fixtures';
+import { groupRoutes } from './routes/groups';
+import { userRoutes } from './routes/users';
+import { teamRoutes } from './routes/teams';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -209,6 +212,9 @@ async function start() {
   await fastify.register(webhookRoutes);
   await fastify.register(recordingRoutes);
   await fastify.register(fixtureRoutes);
+  await fastify.register(groupRoutes);
+  await fastify.register(userRoutes);
+  await fastify.register(teamRoutes);
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();
