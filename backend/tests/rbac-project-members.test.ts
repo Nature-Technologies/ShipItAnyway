@@ -42,7 +42,6 @@ test('members list is team-derived; project create is superadmin-only; mutations
     const createRes = await adminApp.inject({ method: 'POST', url: '/projects', payload: { name: `p-${uniq()}` } });
     assert.equal(createRes.statusCode, 201);
     createdIds.push(createRes.json().id);
-    assert.equal(await prisma.projectMember.count({ where: { projectId: createRes.json().id } }), 0);
 
     // team-derived, de-duplicated union with effective scopes
     const membersRes = await adminApp.inject({ method: 'GET', url: `/projects/${project.id}/members` });

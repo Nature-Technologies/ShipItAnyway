@@ -17,7 +17,6 @@ model Project {
   channels  NotificationChannel[]
   suites    Suite[]
   schedules Schedule[]
-  members   ProjectMember[]
   fixtures  Fixture[]
   teams     TeamProject[]
 }
@@ -38,9 +37,9 @@ model User {
   email        String   @unique
   passwordHash String
   createdAt    DateTime @default(now())
-  memberships  ProjectMember[]
   groups          UserGroup[]
   teamMemberships TeamMember[]
+  invitesSent     Invite[] @relation("InvitesSent")
 }
 
 model Test {
@@ -168,23 +167,24 @@ model NotificationChannel {
   createdAt DateTime @default(now())
 }
 
-model ProjectMember {
-  id        String   @id @default(cuid())
-  projectId String
-  userId    String?
-  email     String
-  status    ProjectMemberStatus @default(ACTIVE)
-  invitedGroupId String?
-  invitedTeamId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Invite {
+  id          String       @id @default(cuid())
+  email       String
+  tokenHash   String       @unique
+  status      InviteStatus @default(PENDING)
+  groupId     String?
+  teamId      String?
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
 
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User   @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: Cascade)
+  group       Group? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  team        Team?  @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
-  @@unique([projectId, email])
-  @@index([projectId])
-  @@index([userId])
+  @@index([email])
+  @@index([status])
 }
 
 model Group {
@@ -196,6 +196,7 @@ model Group {
 
   scopes GroupScope[]
   users  UserGroup[]
+  invites Invite[]
 }
 
 model GroupScope {
@@ -223,6 +224,7 @@ model Team {
 
   members  TeamMember[]
   projects TeamProject[]
+  invites  Invite[]
 }
 
 model TeamMember {
@@ -265,9 +267,11 @@ enum BatchStatus {
   FAILED
 }
 
-enum ProjectMemberStatus {
-  ACTIVE
+enum InviteStatus {
   PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
 enum Scope {

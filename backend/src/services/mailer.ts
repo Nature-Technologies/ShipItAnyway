@@ -22,7 +22,8 @@ export async function sendMail(opts: {
   to: string; subject: string; text: string; html?: string;
 }) {
   const info = await getTransport().sendMail({ from: FROM, ...opts });
-  if (!process.env.SMTP_HOST) console.warn('[mailer] logged (SMTP unset):', info.message);
+  // jsonTransport returns a `message` JSON string not present on the generic SMTP SentMessageInfo type.
+  if (!process.env.SMTP_HOST) console.warn('[mailer] logged (SMTP unset):', (info as { message?: string }).message);
   return info;
 }
 
