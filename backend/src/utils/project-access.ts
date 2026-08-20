@@ -15,6 +15,60 @@ export type ProjectAccess = {
 
 export type ProjectAccessError = Error & { statusCode?: number };
 
+export type Scope =
+  | 'runs:read' | 'runs:trigger'
+  | 'checks:read' | 'checks:edit'
+  | 'schedules:read' | 'schedules:edit'
+  | 'environments:read' | 'environments:edit' | 'environments:reveal-secrets'
+  | 'alerts:read' | 'alerts:edit'
+  | 'members:read'
+  | 'teams:manage'
+  | 'project:manage' | 'project:delete';
+
+const VIEWER_SCOPES: Scope[] = [
+  'runs:read', 'checks:read', 'schedules:read',
+  'environments:read', 'alerts:read', 'members:read'
+];
+const EDITOR_SCOPES: Scope[] = [
+  ...VIEWER_SCOPES,
+  'runs:trigger', 'checks:edit', 'schedules:edit',
+  'environments:edit', 'alerts:edit', 'environments:reveal-secrets'
+];
+const OWNER_SCOPES: Scope[] = [
+  ...EDITOR_SCOPES,
+  'project:manage', 'project:delete', 'teams:manage'
+];
+
+// ponytail: role→scope shim. Roadmap 2.2 replaces this body with a group-union lookup; no route changes.
+export function resolveScopes(member: ProjectMember): Set<Scope> {
+  switch (member.role) {
+    case 'OWNER': return new Set(OWNER_SCOPES);
+    case 'EDITOR': return new Set(EDITOR_SCOPES);
+    case 'VIEWER': return new Set(VIEWER_SCOPES);
+    default: return new Set();
+  }
+}
+
+export function can(access: ProjectAccess, scope: Scope): boolean {
+  return resolveScopes(access.member).has(scope);
+}
+
+export async function requireScope(projectId: string, userId: string, scope: Scope): Promise<ProjectAccess> {
+  const access = await getProjectAccess(projectId, userId);
+  if (!access) {
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+    const error = new Error(project ? 'Forbidden' : 'Project not found') as ProjectAccessError;
+    error.statusCode = project ? 403 : 404;
+    throw error;
+  }
+  if (!can(access, scope)) {
+    const error = new Error('Forbidden') as ProjectAccessError;
+    error.statusCode = 403;
+    throw error;
+  }
+  return access;
+}
+
 const ROLE_RANK: Record<ProjectRole, number> = {
   OWNER: 3,
   EDITOR: 2,
