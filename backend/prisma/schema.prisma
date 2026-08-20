@@ -19,6 +19,7 @@ model Project {
   schedules Schedule[]
   members   ProjectMember[]
   fixtures  Fixture[]
+  teams     TeamProject[]
 }
 
 model Fixture {
@@ -38,6 +39,8 @@ model User {
   passwordHash String
   createdAt    DateTime @default(now())
   memberships  ProjectMember[]
+  groups          UserGroup[]
+  teamMemberships TeamMember[]
 }
 
 model Test {
@@ -172,6 +175,8 @@ model ProjectMember {
   email     String
   role      ProjectRole
   status    ProjectMemberStatus @default(ACTIVE)
+  invitedGroupId String?
+  invitedTeamId  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -181,6 +186,64 @@ model ProjectMember {
   @@unique([projectId, email])
   @@index([projectId])
   @@index([userId])
+}
+
+model Group {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isSystem  Boolean  @default(false)
+  isGlobal  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  scopes GroupScope[]
+  users  UserGroup[]
+}
+
+model GroupScope {
+  groupId String
+  scope   Scope
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, scope])
+}
+
+model UserGroup {
+  userId  String
+  groupId String
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  members  TeamMember[]
+  projects TeamProject[]
+}
+
+model TeamMember {
+  teamId String
+  userId String
+  team   Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+}
+
+model TeamProject {
+  teamId    String
+  projectId String
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, projectId])
+  @@index([projectId])
 }
 
 enum RunStatus {
@@ -212,4 +275,22 @@ enum ProjectRole {
 enum ProjectMemberStatus {
   ACTIVE
   PENDING
+}
+
+enum Scope {
+  runs_read
+  runs_trigger
+  checks_read
+  checks_edit
+  schedules_read
+  schedules_edit
+  environments_read
+  environments_edit
+  environments_reveal_secrets
+  alerts_read
+  alerts_edit
+  members_read
+  teams_manage
+  project_manage
+  project_delete
 }
