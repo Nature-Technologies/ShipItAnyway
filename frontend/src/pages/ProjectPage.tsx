@@ -1060,6 +1060,14 @@ export default function ProjectPage() {
     navigate(`/tests/${testId}/edit`);
   };
 
+  const openLatestRun = (row: ProjectCheck) => {
+    if (row.latestRun?.id) {
+      navigate(`/runs/${row.latestRun.id}`);
+    } else {
+      openCheck(row.id);
+    }
+  };
+
   const handleRunCheck = async (testId: string, event?: MouseEvent) => {
     event?.stopPropagation();
     try {
@@ -1977,7 +1985,7 @@ export default function ProjectPage() {
                         dataIndex: 'name',
                         render: (_: string, row: ProjectCheck) => (
                           <Space direction="vertical" size={0}>
-                            <Button type="link" style={{ padding: 0, textAlign: 'left', fontWeight: 600, height: 'auto' }} onClick={() => openCheck(row.id)}>
+                            <Button type="link" style={{ padding: 0, textAlign: 'left', fontWeight: 600, height: 'auto' }} onClick={() => openLatestRun(row)}>
                               {row.name}
                             </Button>
                             <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.4 }}>
@@ -2008,7 +2016,7 @@ export default function ProjectPage() {
                       {
                         title: 'Open',
                         render: (_: unknown, row: ProjectCheck) => (
-                          <Button size="small" onClick={() => openCheck(row.id)}>
+                          <Button size="small" onClick={() => openLatestRun(row)}>
                             Open
                           </Button>
                         )
