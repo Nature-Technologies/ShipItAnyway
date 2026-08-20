@@ -4,6 +4,7 @@ import { ConfigProvider, theme } from 'antd';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import AcceptInvitePage from './pages/AcceptInvitePage';
+import AccessConsolePage from './pages/AccessConsolePage';
 import DashboardPage from './pages/DashboardPage';
 import ProjectsPage from './pages/ProjectsPage';
 import EnvironmentsPage from './pages/EnvironmentsPage';
@@ -26,6 +27,20 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (!token) {
     return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function SuperadminRoute({ children }: { children: ReactNode }) {
+  const { isSuperadmin, ready } = useAuth();
+
+  if (!ready) {
+    return null;
+  }
+
+  if (!isSuperadmin) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
@@ -62,6 +77,7 @@ export default function App() {
                     <Route path="/tests/:testId/edit" element={<TestEditorPage />} />
                     <Route path="/runs/:runId" element={<RunResultPage />} />
                     <Route path="/run-batches/:batchId" element={<RunBatchResultPage />} />
+                    <Route path="/access" element={<SuperadminRoute><AccessConsolePage /></SuperadminRoute>} />
                   </Routes>
                 </ProtectedRoute>
               }
