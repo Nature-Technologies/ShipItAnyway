@@ -3,11 +3,14 @@ import type {
   DashboardResponse,
   Environment,
   Fixture,
+  Group,
+  Invite,
   NotificationChannel,
   NotificationChannelType,
   PageView,
   Project,
   ProjectMember,
+  Team,
   ProjectWorkspace,
   ProjectSummary,
   Schedule,
@@ -93,19 +96,43 @@ export const checkUserExists = (email: string) =>
     params: { email }
   }).then((r) => r.data);
 
-export const addProjectMember = (
-  projectId: string,
-  data: { email: string; password?: string; role: ProjectMember['role'] }
-) => api.post<ProjectMember>(`/projects/${projectId}/members`, data).then((r) => r.data);
+// Groups (superadmin)
+export const getGroups = () => api.get<Group[]>('/groups').then((r) => r.data);
+export const createGroup = (data: { name: string; scopes: string[] }) =>
+  api.post<Group>('/groups', data).then((r) => r.data);
+export const updateGroup = (id: string, data: Partial<{ name: string; scopes: string[] }>) =>
+  api.patch<Group>(`/groups/${id}`, data).then((r) => r.data);
+export const deleteGroup = (id: string) => api.delete(`/groups/${id}`);
 
-export const updateProjectMember = (
-  projectId: string,
-  memberId: string,
-  data: { role: ProjectMember['role'] }
-) => api.patch<ProjectMember>(`/projects/${projectId}/members/${memberId}`, data).then((r) => r.data);
+// Users + global group assignment (superadmin)
+export const getUsers = () =>
+  api.get<Array<{ id: string; email: string }>>('/users').then((r) => r.data);
+export const getUserGroups = (userId: string) =>
+  api.get<Group[]>(`/users/${userId}/groups`).then((r) => r.data);
+export const setUserGroups = (userId: string, groupIds: string[]) =>
+  api.put(`/users/${userId}/groups`, { groupIds });
 
-export const deleteProjectMember = (projectId: string, memberId: string) =>
-  api.delete(`/projects/${projectId}/members/${memberId}`);
+// Teams (delegated via teams_manage)
+export const getTeams = () =>
+  api.get<Team[]>('/teams').then((r) => r.data);
+export const createTeam = (data: { name: string }) =>
+  api.post<Team>('/teams', data).then((r) => r.data);
+export const deleteTeam = (id: string) => api.delete(`/teams/${id}`);
+export const attachTeamToProject = (teamId: string, projectId: string) =>
+  api.post(`/teams/${teamId}/projects`, { projectId });
+export const detachTeamFromProject = (teamId: string, projectId: string) =>
+  api.delete(`/teams/${teamId}/projects/${projectId}`);
+export const addTeamMember = (teamId: string, userId: string) =>
+  api.post(`/teams/${teamId}/members`, { userId });
+export const removeTeamMember = (teamId: string, userId: string) =>
+  api.delete(`/teams/${teamId}/members/${userId}`);
+
+// Invites (2.4)
+export const getInvites = () =>
+  api.get<Invite[]>('/invites').then((r) => r.data);
+export const createInvite = (data: { email: string; teamId?: string; groupId?: string }) =>
+  api.post<Invite>('/invites', data).then((r) => r.data);
+export const revokeInvite = (id: string) => api.delete(`/invites/${id}`);
 
 export const getDevices = () =>
   api.get<{ label: string; value: string }[]>('/devices').then((r) => r.data);
