@@ -110,6 +110,8 @@ async function start() {
     const publicRoutes = [
       { method: 'POST', url: '/auth/login' },
       { method: 'POST', url: '/auth/logout' },
+      { method: 'GET', url: '/auth/invite' },
+      { method: 'POST', url: '/auth/accept-invite' },
       { method: 'GET', url: '/health' },
       { method: 'GET', url: '/health/db' },
       { method: 'POST', url: '/webhooks/trigger' },

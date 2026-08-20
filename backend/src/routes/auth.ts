@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { canCreateProject, isSuperadmin } from '../utils/project-access';
+import { hashInviteToken } from '../utils/invite-token';
 
 const LoginSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -57,6 +58,21 @@ export async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.post('/auth/logout', async () => ({ ok: true }));
+
+  fastify.get('/auth/invite', {
+    config: { rateLimit: { max: 20, timeWindow: '5 minutes' } }
+  }, async (req, reply) => {
+    const token = (req.query as { token?: string }).token;
+    if (!token) return reply.status(400).send({ error: 'Invalid or expired invite' });
+    const invite = await prisma.invite.findUnique({ where: { tokenHash: hashInviteToken(token) } });
+    if (!invite || invite.status !== 'PENDING' || invite.expiresAt < new Date()) {
+      if (invite?.status === 'PENDING' && invite.expiresAt < new Date()) {
+        await prisma.invite.update({ where: { id: invite.id }, data: { status: 'EXPIRED' } });
+      }
+      return reply.status(400).send({ error: 'Invalid or expired invite' }); // generic — no enumeration
+    }
+    return { email: invite.email };
+  });
 
   fastify.get('/auth/me', async (req) => {
     const payload = req.user as { userId: string; email: string };
