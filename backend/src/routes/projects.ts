@@ -1,17 +1,16 @@
 import { FastifyInstance } from 'fastify';
-import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/project.schema';
-import type { ProjectRole, RunStatus } from '@prisma/client';
+import type { RunStatus } from '@prisma/client';
 import {
   getAccessibleProjectIds,
   getAuthUser,
   getProjectAccessStatusCode,
-  getProjectOwnersCount,
-  isProtectedAdminEmail,
   requireScope,
+  requireSuperadmin,
   resolveScopes,
+  resolveUserScopes,
   Scope,
 } from '../utils/project-access';
 
@@ -38,33 +37,6 @@ type ProjectListItem = {
 
 function unique<T>(values: T[]) {
   return [...new Set(values)];
-}
-
-const ProjectMemberCreateSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().optional(),
-  role: z.enum(['OWNER', 'EDITOR', 'VIEWER'])
-});
-
-const ProjectMemberUpdateSchema = z.object({
-  role: z.enum(['OWNER', 'EDITOR', 'VIEWER'])
-});
-
-function serializeProjectMember(member: {
-  id: string;
-  projectId: string;
-  userId: string | null;
-  email: string;
-  role: ProjectRole;
-  status: 'ACTIVE' | 'PENDING';
-  createdAt: Date;
-  updatedAt: Date;
-  user?: { email: string } | null;
-}) {
-  return {
-    ...member,
-    isSystemAdmin: isProtectedAdminEmail(member.email)
-  };
 }
 
 export async function projectRoutes(fastify: FastifyInstance) {
@@ -393,25 +365,14 @@ export async function projectRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: result.error.flatten() });
     }
 
-    const { userId, email } = getAuthUser(req);
-    if (!isProtectedAdminEmail(email)) {
-      return reply.status(403).send({ error: 'Project creation is restricted to the system admin' });
+    const { userId } = getAuthUser(req);
+    try {
+      await requireSuperadmin(userId);
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: 'Project creation is restricted to superadmins' });
     }
 
-    const project = await prisma.$transaction(async (tx) => {
-      const created = await tx.project.create({ data: result.data });
-      await tx.projectMember.create({
-        data: {
-          projectId: created.id,
-          userId,
-          email,
-          role: 'OWNER',
-          status: 'ACTIVE'
-        }
-      });
-      return created;
-    });
-
+    const project = await prisma.project.create({ data: result.data });
     return reply.status(201).send(project);
   });
 
@@ -458,192 +419,45 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { id: string } }>('/projects/:id/members', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project_manage');
+      await requireScope(req.params.id, userId, 'members_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
 
-    const project = await prisma.project.findUnique({
-      where: { id: req.params.id },
-      select: { id: true }
-    });
-
-    if (!project) return reply.status(404).send({ error: 'Project not found' });
-
-    return prisma.projectMember.findMany({
+    const teamLinks = await prisma.teamProject.findMany({
       where: { projectId: req.params.id },
-      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
       include: {
-        user: {
+        team: {
           select: {
-            email: true
+            id: true, name: true,
+            members: { include: { user: { select: { id: true, email: true } } } }
           }
         }
       }
-    }).then((members) =>
-      members.map((member) => serializeProjectMember({
-        id: member.id,
-        projectId: member.projectId,
-        userId: member.userId,
-        email: member.email,
-        role: member.role,
-        status: member.status,
-        createdAt: member.createdAt,
-        updatedAt: member.updatedAt,
-        user: member.user ? { email: member.user.email } : null
-      }))
-    );
-  });
-
-  fastify.post<{ Params: { id: string } }>('/projects/:id/members', async (req, reply) => {
-    const { userId } = getAuthUser(req);
-    try {
-      await requireScope(req.params.id, userId, 'project_manage');
-    } catch (error) {
-      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
-    }
-
-    const result = ProjectMemberCreateSchema.safeParse(req.body);
-    if (!result.success) {
-      return reply.status(400).send({ error: result.error.flatten() });
-    }
-
-    const project = await prisma.project.findUnique({
-      where: { id: req.params.id },
-      select: { id: true }
     });
 
-    if (!project) return reply.status(404).send({ error: 'Project not found' });
-
-    if (isProtectedAdminEmail(result.data.email) && result.data.role !== 'OWNER') {
-      return reply.status(400).send({ error: 'This admin member must be added as an owner' });
+    // de-duplicate users across teams, tracking which teams each came from
+    const byUser = new Map<string, { userId: string; email: string; teams: { id: string; name: string }[] }>();
+    for (const link of teamLinks) {
+      for (const m of link.team.members) {
+        const row = byUser.get(m.userId) ?? { userId: m.userId, email: m.user.email, teams: [] };
+        row.teams.push({ id: link.team.id, name: link.team.name });
+        byUser.set(m.userId, row);
+      }
     }
 
-    const memberResult = await prisma.$transaction(async (tx) => {
-      const existingUser = await tx.user.findUnique({
-        where: { email: result.data.email },
-        select: { id: true }
+    return Promise.all([...byUser.values()].map(async (row) => {
+      const groups = await prisma.userGroup.findMany({
+        where: { userId: row.userId },
+        include: { group: { select: { name: true } } }
       });
-
-      const password = result.data.password?.trim();
-      if (!existingUser && !password) {
-        return { error: 'Password is required when creating a new user' as const };
-      }
-
-      const user = existingUser
-        ? { id: existingUser.id }
-        : await tx.user.upsert({
-          where: { email: result.data.email },
-          create: {
-            email: result.data.email,
-            passwordHash: await bcrypt.hash(password ?? '', 12)
-          },
-          update: {},
-          select: {
-            id: true
-          }
-        });
-
-      return tx.projectMember.upsert({
-        where: {
-          projectId_email: {
-            projectId: project.id,
-            email: result.data.email
-          }
-        },
-        update: {
-          userId: user.id,
-          role: result.data.role,
-          status: 'ACTIVE'
-        },
-        create: {
-          projectId: project.id,
-          email: result.data.email,
-          userId: user.id,
-          role: result.data.role,
-          status: 'ACTIVE'
-        }
-      });
-    });
-
-    if ('error' in memberResult) {
-      return reply.status(400).send({ error: memberResult.error });
-    }
-
-    return reply.status(201).send(serializeProjectMember(memberResult));
+      const { membershipScopes, globalScopes } = await resolveUserScopes(row.userId);
+      return {
+        ...row,
+        groups: groups.map((g) => g.group.name),
+        scopes: [...new Set([...membershipScopes, ...globalScopes])].sort()
+      };
+    }));
   });
 
-  fastify.patch<{ Params: { id: string; memberId: string } }>('/projects/:id/members/:memberId', async (req, reply) => {
-    const { userId } = getAuthUser(req);
-    try {
-      await requireScope(req.params.id, userId, 'project_manage');
-    } catch (error) {
-      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
-    }
-
-    const result = ProjectMemberUpdateSchema.safeParse(req.body);
-    if (!result.success) {
-      return reply.status(400).send({ error: result.error.flatten() });
-    }
-
-    const member = await prisma.projectMember.findFirst({
-      where: {
-        id: req.params.memberId,
-        projectId: req.params.id
-      }
-    });
-
-    if (!member) return reply.status(404).send({ error: 'Member not found' });
-    if (isProtectedAdminEmail(member.email) && result.data.role !== 'OWNER') {
-      return reply.status(400).send({ error: 'This admin member must stay an owner' });
-    }
-
-    const ownerCount = await getProjectOwnersCount(req.params.id);
-    if (member.role === 'OWNER' && result.data.role !== 'OWNER' && ownerCount <= 1) {
-      return reply.status(400).send({ error: 'Project must have at least one owner' });
-    }
-
-    const updated = await prisma.projectMember.update({
-      where: { id: member.id },
-      data: {
-        role: result.data.role
-      }
-    });
-
-    return serializeProjectMember(updated);
-  });
-
-  fastify.delete<{ Params: { id: string; memberId: string } }>('/projects/:id/members/:memberId', async (req, reply) => {
-    const { userId } = getAuthUser(req);
-    try {
-      await requireScope(req.params.id, userId, 'project_manage');
-    } catch (error) {
-      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
-    }
-
-    const member = await prisma.projectMember.findFirst({
-      where: {
-        id: req.params.memberId,
-        projectId: req.params.id
-      }
-    });
-
-    if (!member) return reply.status(404).send({ error: 'Member not found' });
-    if (isProtectedAdminEmail(member.email)) {
-      return reply.status(400).send({ error: 'This admin member cannot be removed' });
-    }
-
-    const ownerCount = await getProjectOwnersCount(req.params.id);
-    if (member.role === 'OWNER' && ownerCount <= 1) {
-      return reply.status(400).send({ error: 'Project must have at least one owner' });
-    }
-
-    await prisma.projectMember.delete({
-      where: {
-        id: member.id
-      }
-    });
-
-    return reply.status(204).send();
-  });
 }
