@@ -9,7 +9,7 @@ import {
   getProjectAccessStatusCode,
   getProjectOwnersCount,
   isProtectedAdminEmail,
-  requireProjectRole,
+  requireScope,
 } from '../utils/project-access';
 
 type ProjectListItem = {
@@ -36,9 +36,6 @@ type ProjectListItem = {
 function unique<T>(values: T[]) {
   return [...new Set(values)];
 }
-
-const PROJECT_READ_ROLES: ProjectRole[] = ['OWNER', 'EDITOR', 'VIEWER'];
-const PROJECT_OWNER_ROLES: ProjectRole[] = ['OWNER'];
 
 const ProjectMemberCreateSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -216,7 +213,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const { userId } = getAuthUser(req);
     let access;
     try {
-      access = await requireProjectRole(req.params.id, userId, PROJECT_READ_ROLES);
+      access = await requireScope(req.params.id, userId, 'members:read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -436,7 +433,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.id, userId, PROJECT_OWNER_ROLES);
+      await requireScope(req.params.id, userId, 'project:manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -455,7 +452,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string } }>('/projects/:id', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.id, userId, PROJECT_OWNER_ROLES);
+      await requireScope(req.params.id, userId, 'project:delete');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -471,7 +468,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { id: string } }>('/projects/:id/members', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.id, userId, PROJECT_OWNER_ROLES);
+      await requireScope(req.params.id, userId, 'project:manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -511,7 +508,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.post<{ Params: { id: string } }>('/projects/:id/members', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.id, userId, PROJECT_OWNER_ROLES);
+      await requireScope(req.params.id, userId, 'project:manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -589,7 +586,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.patch<{ Params: { id: string; memberId: string } }>('/projects/:id/members/:memberId', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.id, userId, PROJECT_OWNER_ROLES);
+      await requireScope(req.params.id, userId, 'project:manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -629,7 +626,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string; memberId: string } }>('/projects/:id/members/:memberId', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.id, userId, PROJECT_OWNER_ROLES);
+      await requireScope(req.params.id, userId, 'project:manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
