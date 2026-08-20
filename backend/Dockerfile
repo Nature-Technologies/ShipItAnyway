@@ -21,5 +21,8 @@ RUN mkdir -p /app/backend/screenshots /app/backend/traces
 
 EXPOSE 3000
 
+# Pin the container to UTC so an unset Schedule.timezone fires deterministically in UTC.
+ENV TZ=UTC
+
 # TypeScript output lives under dist/src because the backend tsconfig compiles from src/.
 CMD sh -c "cd backend && npx prisma migrate deploy && npx prisma db seed && node dist/src/index.js"

@@ -74,6 +74,7 @@ import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import RunStatusBadge from '../components/RunStatusBadge';
 import UserMenu from '../components/UserMenu';
+import { ScheduleFormModal, SchedulePayload, describeCron } from '../components/ScheduleFormModal';
 import {
   clearProjectSettingsDraft,
   getProjectDefaultDeviceOptions,
@@ -94,11 +95,8 @@ import type {
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
-const APP_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
 type ProjectTabKey = 'overview' | 'checks' | 'runs' | 'schedules' | 'environments' | 'alerts' | 'settings' | 'members';
 type EntityMode = 'create' | 'edit';
-type ScheduleTargetType = 'suite' | 'test';
 
 type EnvironmentRowState = { id: string; key: string; value: string };
 
@@ -114,25 +112,6 @@ type ChannelFormState = {
 };
 
 type ChannelRuleKey = 'onFailed' | 'onRecovered' | 'onPassed';
-
-type ScheduleFormState = {
-  name: string;
-  cronPreset: string;
-  customCron: string;
-  targetType: ScheduleTargetType;
-  suiteId?: string;
-  testId?: string;
-  environmentId?: string;
-  enabled: boolean;
-};
-
-const CRON_PRESETS = [
-  { label: 'Every hour', value: '0 * * * *' },
-  { label: 'Every day 9am', value: '0 9 * * *' },
-  { label: 'Every day 2am', value: '0 2 * * *' },
-  { label: 'Every Monday', value: '0 9 * * 1' },
-  { label: 'Custom...', value: 'custom' }
-];
 
 const DEFAULT_DEVICE_OPTIONS = getProjectDefaultDeviceOptions();
 
@@ -364,38 +343,6 @@ function formatScheduleNextRunRelative(schedule: Schedule) {
   return formatCompactDateTime(schedule.nextRunAt);
 }
 
-function describeCron(cron: string) {
-  const map: Record<string, string> = {
-    '* * * * *': 'Runs every minute',
-    '*/15 * * * *': 'Runs every 15 minutes',
-    '0 * * * *': 'Runs every hour',
-    '0 2 * * *': 'Runs every day at 02:00',
-    '0 9 * * *': 'Runs every day at 09:00',
-    '0 9 * * 1': 'Runs every Monday at 09:00'
-  };
-
-  if (map[cron]) return map[cron];
-
-  const dailyMatch = cron.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
-  if (dailyMatch) {
-    const hour = String(Number(dailyMatch[2])).padStart(2, '0');
-    const minute = String(Number(dailyMatch[1])).padStart(2, '0');
-    return `Runs every day at ${hour}:${minute}`;
-  }
-
-  return 'Custom cron schedule';
-}
-
-function usesVariables(value?: string | null) {
-  return Boolean(value && /{{\s*[\w.-]+\s*}}/.test(value));
-}
-
-function testUsesVariables(test?: ProjectCheck | null) {
-  if (!test) return false;
-  if (usesVariables(test.url)) return true;
-  return test.steps.some((step) => usesVariables(step.selector) || usesVariables(step.value) || usesVariables(step.expected));
-}
-
 function getFirstEnabledDataCaseIndex(test?: ProjectCheck | null) {
   if (!test || test.testData.length === 0) return undefined;
 
@@ -569,16 +516,6 @@ export default function ProjectPage() {
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [scheduleMode, setScheduleMode] = useState<EntityMode>('create');
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
-  const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>({
-    name: '',
-    cronPreset: '0 2 * * *',
-    customCron: '0 2 * * *',
-    targetType: 'suite',
-    suiteId: undefined,
-    testId: undefined,
-    environmentId: undefined,
-    enabled: true
-  });
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [projectDescription, setProjectDescription] = useState('');
   const [savedProjectDescription, setSavedProjectDescription] = useState('');
@@ -718,24 +655,6 @@ export default function ProjectPage() {
     ],
     [channels.length, environments.length, projectChecks.length, schedules]
   );
-
-  const scheduleFormCron = scheduleForm.cronPreset === 'custom' ? scheduleForm.customCron.trim() : scheduleForm.cronPreset;
-  const scheduleFormTargetSuite = useMemo(
-    () => suites.find((suite) => suite.id === scheduleForm.suiteId),
-    [scheduleForm.suiteId, suites]
-  );
-  const scheduleFormTargetCheck = useMemo(
-    () => projectChecks.find((check) => check.id === scheduleForm.testId),
-    [projectChecks, scheduleForm.testId]
-  );
-  const scheduleFormTargetUsesVariables = useMemo(() => {
-    if (scheduleForm.targetType === 'suite') {
-      if (!scheduleFormTargetSuite) return false;
-      return scheduleFormTargetSuite.testIds.some((testId) => testUsesVariables(projectChecks.find((check) => check.id === testId)));
-    }
-    return testUsesVariables(scheduleFormTargetCheck);
-  }, [projectChecks, scheduleForm.targetType, scheduleFormTargetCheck, scheduleFormTargetSuite]);
-  const scheduleFormNeedsEnvironment = scheduleFormTargetUsesVariables && !scheduleForm.environmentId;
 
   const openEnvironmentCreate = () => {
     if (!canManageEnvironments) {
@@ -1046,16 +965,6 @@ export default function ProjectPage() {
     }
     setScheduleMode('create');
     setEditingSchedule(null);
-    setScheduleForm({
-      name: '',
-      cronPreset: '0 2 * * *',
-      customCron: '0 2 * * *',
-      targetType: suites.length > 0 ? 'suite' : 'test',
-      suiteId: suites[0]?.id,
-      testId: projectChecks[0]?.id,
-      environmentId: undefined,
-      enabled: true
-    });
     setScheduleModalOpen(true);
   };
 
@@ -1064,63 +973,18 @@ export default function ProjectPage() {
       message.info('Read-only access');
       return;
     }
-    const targetType: ScheduleTargetType = schedule.suiteId ? 'suite' : 'test';
-    const preset = CRON_PRESETS.some((item) => item.value === schedule.cron) ? schedule.cron : 'custom';
     setScheduleMode('edit');
     setEditingSchedule(schedule);
-    setScheduleForm({
-      name: schedule.name,
-      cronPreset: preset,
-      customCron: preset === 'custom' ? schedule.cron : schedule.cron,
-      targetType,
-      suiteId: schedule.suiteId ?? undefined,
-      testId: schedule.testId ?? undefined,
-      environmentId: schedule.environmentId ?? undefined,
-      enabled: schedule.enabled
-    });
     setScheduleModalOpen(true);
   };
 
-  const saveSchedule = async () => {
+  const saveSchedule = async (payload: SchedulePayload) => {
     if (!canManageSchedules) {
       message.info('Read-only access');
       return;
     }
-    if (!scheduleForm.name.trim()) {
-      message.error('Schedule name is required');
-      return;
-    }
-
-    const cronValue = scheduleForm.cronPreset === 'custom' ? scheduleForm.customCron.trim() : scheduleForm.cronPreset;
-    if (!cronValue) {
-      message.error('Cron is required');
-      return;
-    }
-
-    const targetSuiteId = scheduleForm.targetType === 'suite' ? scheduleForm.suiteId : undefined;
-    const targetTestId = scheduleForm.targetType === 'test' ? scheduleForm.testId : undefined;
-
-    if (!targetSuiteId && !targetTestId) {
-      message.error('Select a suite or a check');
-      return;
-    }
-
-    if (scheduleFormNeedsEnvironment) {
-      message.error('Select an environment for checks that use variables');
-      return;
-    }
-
     setScheduleSaving(true);
     try {
-      const payload = {
-        name: scheduleForm.name.trim(),
-        cron: cronValue,
-        suiteId: targetSuiteId ?? null,
-        testId: targetTestId ?? null,
-        environmentId: scheduleForm.environmentId ?? null,
-        enabled: scheduleForm.enabled
-      };
-
       if (scheduleMode === 'edit' && editingSchedule) {
         await updateSchedule(editingSchedule.id, payload);
         message.success('Schedule updated');
@@ -1128,6 +992,7 @@ export default function ProjectPage() {
         await createSchedule(projectId!, {
           name: payload.name,
           cron: payload.cron,
+          timezone: payload.timezone,
           suiteId: payload.suiteId ?? undefined,
           testId: payload.testId ?? undefined,
           environmentId: payload.environmentId ?? undefined,
@@ -1135,7 +1000,6 @@ export default function ProjectPage() {
         });
         message.success('Schedule created');
       }
-
       setScheduleModalOpen(false);
       await load();
     } catch {
@@ -1194,6 +1058,14 @@ export default function ProjectPage() {
 
   const openCheck = (testId: string) => {
     navigate(`/tests/${testId}/edit`);
+  };
+
+  const openLatestRun = (row: ProjectCheck) => {
+    if (row.latestRun?.id) {
+      navigate(`/runs/${row.latestRun.id}`);
+    } else {
+      openCheck(row.id);
+    }
   };
 
   const handleRunCheck = async (testId: string, event?: MouseEvent) => {
@@ -2113,7 +1985,7 @@ export default function ProjectPage() {
                         dataIndex: 'name',
                         render: (_: string, row: ProjectCheck) => (
                           <Space direction="vertical" size={0}>
-                            <Button type="link" style={{ padding: 0, textAlign: 'left', fontWeight: 600, height: 'auto' }} onClick={() => openCheck(row.id)}>
+                            <Button type="link" style={{ padding: 0, textAlign: 'left', fontWeight: 600, height: 'auto' }} onClick={() => openLatestRun(row)}>
                               {row.name}
                             </Button>
                             <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.4 }}>
@@ -2144,7 +2016,7 @@ export default function ProjectPage() {
                       {
                         title: 'Open',
                         render: (_: unknown, row: ProjectCheck) => (
-                          <Button size="small" onClick={() => openCheck(row.id)}>
+                          <Button size="small" onClick={() => openLatestRun(row)}>
                             Open
                           </Button>
                         )
@@ -3261,157 +3133,17 @@ export default function ProjectPage() {
         </Space>
       </Modal>
 
-      <Modal
-        title={scheduleMode === 'edit' ? `Edit Schedule: ${editingSchedule?.name ?? ''}` : 'New Schedule'}
+      <ScheduleFormModal
         open={scheduleModalOpen}
-        onOk={() => void saveSchedule()}
+        mode={scheduleMode}
+        schedule={editingSchedule}
+        suites={suites}
+        checks={projectChecks}
+        environments={environments}
+        saving={scheduleSaving}
         onCancel={() => setScheduleModalOpen(false)}
-        confirmLoading={scheduleSaving}
-        width={760}
-        centered
-        style={{ top: 24 }}
-        styles={{
-          body: { maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' }
-        }}
-        okText={scheduleMode === 'edit' ? 'Save changes' : 'Create schedule'}
-      >
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <div>
-            <Text type="secondary">Schedule name</Text>
-            <Input
-              value={scheduleForm.name}
-              onChange={(event) => setScheduleForm((current) => ({ ...current, name: event.target.value }))}
-              placeholder="Nightly smoke"
-              style={{ marginTop: 8 }}
-            />
-          </div>
-
-          <div>
-            <Text type="secondary">Cron preset</Text>
-            <Select
-              value={scheduleForm.cronPreset}
-              onChange={(value) =>
-                setScheduleForm((current) => ({
-                  ...current,
-                  cronPreset: value,
-                  customCron: value === 'custom' ? current.customCron : value
-                }))
-              }
-              style={{ width: '100%', marginTop: 8 }}
-              options={CRON_PRESETS}
-            />
-            <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: '#fafafa', border: '1px solid #f0f0f0' }}>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                Cron expression
-              </Text>
-              <Text strong style={{ display: 'block', fontFamily: 'monospace' }}>
-                {scheduleFormCron || '—'}
-              </Text>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                Schedule preview
-              </Text>
-              <Text style={{ display: 'block', marginTop: 2 }}>
-                {describeCron(scheduleFormCron)} {scheduleFormCron ? APP_TIMEZONE : ''}
-              </Text>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                Timezone
-              </Text>
-              <Text style={{ display: 'block', marginTop: 2 }}>{APP_TIMEZONE}</Text>
-            </div>
-            {scheduleForm.cronPreset === 'custom' && (
-              <Input
-                value={scheduleForm.customCron}
-                onChange={(event) => setScheduleForm((current) => ({ ...current, customCron: event.target.value }))}
-                placeholder="0 9 * * *"
-                style={{ marginTop: 8 }}
-              />
-            )}
-          </div>
-
-          <div>
-            <Text type="secondary">Target</Text>
-            <Radio.Group
-              style={{ display: 'flex', gap: 12, marginTop: 8 }}
-              value={scheduleForm.targetType}
-              onChange={(event) =>
-                setScheduleForm((current) => ({
-                  ...current,
-                  targetType: event.target.value,
-                  suiteId: event.target.value === 'suite' ? current.suiteId ?? suites[0]?.id : undefined,
-                  testId: event.target.value === 'test' ? current.testId ?? projectChecks[0]?.id : undefined
-                }))
-              }
-            >
-              <Radio value="suite">Suite</Radio>
-              <Radio value="test">Check</Radio>
-            </Radio.Group>
-          </div>
-
-          {scheduleForm.targetType === 'suite' ? (
-            <div>
-              <Text type="secondary">Suite</Text>
-              <Select
-                value={scheduleForm.suiteId}
-                onChange={(value) => setScheduleForm((current) => ({ ...current, suiteId: value }))}
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="Select a suite"
-                options={suites.map((suite) => ({ value: suite.id, label: `${suite.name} • ${suite.testIds.length} checks` }))}
-              />
-            </div>
-          ) : (
-            <div>
-              <Text type="secondary">Check</Text>
-              <Select
-                value={scheduleForm.testId}
-                onChange={(value) => setScheduleForm((current) => ({ ...current, testId: value }))}
-                style={{ width: '100%', marginTop: 8 }}
-                placeholder="Select a check"
-                options={projectChecks.map((check) => ({ value: check.id, label: check.name }))}
-              />
-            </div>
-          )}
-
-          <div>
-            <Text type="secondary">Environment</Text>
-            <Select
-              allowClear
-              value={scheduleForm.environmentId}
-              onChange={(value) => setScheduleForm((current) => ({ ...current, environmentId: value }))}
-              style={{ width: '100%', marginTop: 8 }}
-              placeholder="No environment"
-              options={environments.map((environment) => ({
-                value: environment.id,
-                label: `${environment.name} • ${Object.keys(environment.variables).length} variables`
-              }))}
-            />
-            {scheduleFormNeedsEnvironment && (
-              <Alert
-                style={{ marginTop: 12 }}
-                type="warning"
-                showIcon
-                message="No environment selected"
-                description="Checks using variables like {{BASE_URL}} may fail."
-              />
-            )}
-          </div>
-
-          <div>
-            <Text type="secondary">Status</Text>
-              <Radio.Group
-                style={{ display: 'flex', gap: 12, marginTop: 8 }}
-                value={scheduleForm.enabled ? 'active' : 'paused'}
-                onChange={(event) =>
-                  setScheduleForm((current) => ({ ...current, enabled: event.target.value === 'active' }))
-                }
-              >
-                <Radio value="active">Active</Radio>
-                <Radio value="paused">Paused</Radio>
-              </Radio.Group>
-            </div>
-        </Space>
-      </Modal>
+        onSubmit={(payload) => void saveSchedule(payload)}
+      />
 
       <Modal
         title="Delete project?"

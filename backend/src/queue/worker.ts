@@ -16,6 +16,7 @@ import { mergeRuntimeVariables } from '../utils/runtime-variables';
 import { notifyRunResult } from '../services/notifier';
 import { getBrowserName, launchChromium } from '../utils/browser';
 import { validateStepRequirements } from '../utils/step-validation';
+import { resolveFixturePath } from '../routes/fixtures';
 import {
   buildActionCandidates,
   dedupe,
@@ -302,6 +303,13 @@ async function runTest(job: Job<TestJobData>) {
           case 'selectOption':
             await runSingleTargetAction(page, index, 'selectOption', step);
             break;
+          case 'upload': {
+            if (!step.value) throw new Error('Fixture id required for upload step');
+            const fixture = await prisma.fixture.findFirst({ where: { id: step.value, projectId: test.projectId } });
+            if (!fixture) throw new Error(`Fixture not found or not accessible: ${step.value}`);
+            await resolveLocator(page, step.selector!).first().setInputFiles(resolveFixturePath(fixture.storedName));
+            break;
+          }
           case 'assertVisible': {
             const locator = resolveLocator(page, step.selector!);
             const target = step.options?.nth !== undefined ? locator.nth(step.options.nth) : locator;

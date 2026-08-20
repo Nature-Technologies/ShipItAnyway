@@ -2,8 +2,10 @@ import axios from 'axios';
 import type {
   DashboardResponse,
   Environment,
+  Fixture,
   NotificationChannel,
   NotificationChannelType,
+  PageView,
   Project,
   ProjectMember,
   ProjectWorkspace,
@@ -142,6 +144,7 @@ export const createSchedule = (
   data: {
     name: string;
     cron: string;
+    timezone?: string;
     suiteId?: string;
     testId?: string;
     environmentId?: string;
@@ -154,6 +157,7 @@ export const updateSchedule = (
   data: Partial<{
     name: string;
     cron: string;
+    timezone: string | null;
     suiteId: string | null;
     testId: string | null;
     environmentId: string | null;
@@ -163,6 +167,9 @@ export const updateSchedule = (
 
 export const deleteSchedule = (id: string) =>
   api.delete(`/schedules/${id}`);
+
+export const runSchedule = (id: string) =>
+  api.post('/schedules/' + id + '/run');
 
 export const getEnvironments = (projectId: string) =>
   api.get<Environment[]>(`/projects/${projectId}/environments`).then((r) => r.data);
@@ -310,3 +317,24 @@ export const startRecording = (url: string, projectId: string, environmentId?: s
 
 export const stopRecording = (sessionId: string) =>
   api.post<{ steps: Step[] }>(`/recordings/${sessionId}/stop`).then((r) => r.data);
+
+export const startDrivenRecording = (projectId: string, url: string, device?: string) =>
+  api.post<{ sessionId: string; steps: Step[]; view: PageView }>('/recordings/driven/start', { projectId, url, device }).then((r) => r.data);
+
+export const sendDrivenAction = (sessionId: string, action: Step) =>
+  api.post<{ step: Step; view: PageView }>(`/recordings/driven/${sessionId}/action`, action).then((r) => r.data);
+
+export const observeDrivenRecording = (sessionId: string) =>
+  api.get<{ view: PageView }>(`/recordings/driven/${sessionId}/observe`).then((r) => r.data);
+
+export const stopDrivenRecording = (sessionId: string) =>
+  api.post<{ steps: Step[] }>(`/recordings/driven/${sessionId}/stop`).then((r) => r.data);
+
+export const uploadFixture = (projectId: string, file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post<{ fixture: Fixture }>(`/projects/${projectId}/fixtures`, form).then((r) => r.data.fixture);
+};
+
+export const listFixtures = (projectId: string) =>
+  api.get<{ fixtures: Fixture[] }>(`/projects/${projectId}/fixtures`).then((r) => r.data.fixtures);

@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Carousel,
   Col,
   Collapse,
   Image,
@@ -60,7 +61,8 @@ function humanizeAction(action: StepAction | string) {
     assertURL: 'Assert URL',
     assertTitle: 'Assert title',
     assertChecked: 'Assert checked',
-    assertCount: 'Assert count'
+    assertCount: 'Assert count',
+    upload: 'Upload file'
   };
   return labels[action] ?? action;
 }
@@ -571,24 +573,25 @@ export default function RunResultPage() {
                 title="Screenshots"
                 style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }}
               >
-                <Space wrap>
-                  {run?.screenshots.map((name, index) => (
-                    <Card
-                      key={name}
-                      size="small"
-                      style={{ width: 320, borderRadius: 16 }}
-                      cover={
-                        <Image
-                          alt={`Step ${index + 1}`}
-                          src={`${BACKEND_URL}/screenshots/${name}`}
-                          preview
-                        />
-                      }
-                    >
-                      <Card.Meta title={`Step ${index + 1}`} description={name} />
-                    </Card>
-                  ))}
-                </Space>
+                <Image.PreviewGroup>
+                  <Carousel arrows dots adaptiveHeight style={{ paddingBottom: 8 }}>
+                    {run?.screenshots.map((name, index) => (
+                      <div key={name}>
+                        <div style={{ textAlign: 'center' }}>
+                          <Image
+                            alt={`Step ${index + 1}`}
+                            src={`${BACKEND_URL}/screenshots/${name}`}
+                            style={{ maxHeight: 560, width: 'auto', objectFit: 'contain', borderRadius: 12 }}
+                            preview
+                          />
+                          <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                            Step {index + 1} · {name}
+                          </Text>
+                        </div>
+                      </div>
+                    ))}
+                  </Carousel>
+                </Image.PreviewGroup>
               </Card>
             </Col>
           )}

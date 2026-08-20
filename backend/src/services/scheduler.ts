@@ -1,103 +1,28 @@
-import cron from 'node-cron';
 import type { Schedule } from '@prisma/client';
 import prisma from '../prisma';
-import { testQueue } from '../queue/queue';
-import { DATA_DRIVEN_CASE_REQUIRED_ERROR, hasTestDataCases } from '../utils/test-data';
+import { scheduleQueue } from '../queue/schedule-queue';
 
 class SchedulerService {
-  private tasks = new Map<string, ReturnType<typeof cron.schedule>>();
-
-  register(schedule: Schedule) {
-    this.unregister(schedule.id);
-
-    if (!schedule.enabled) return;
-    if (!cron.validate(schedule.cron)) return;
-
-    const task = cron.schedule(schedule.cron, async () => {
-      console.log(`[Scheduler] Running schedule "${schedule.name}"`);
-
-      try {
-        const testIds: string[] = [];
-
-        if (schedule.suiteId) {
-          const suite = await prisma.suite.findUnique({
-            where: { id: schedule.suiteId }
-          });
-          if (suite) {
-            testIds.push(...((suite.testIds as string[]) ?? []));
-          }
-        } else if (schedule.testId) {
-          testIds.push(schedule.testId);
-        }
-
-        for (const testId of testIds) {
-          const test = await prisma.test.findUnique({ where: { id: testId } });
-          if (!test) continue;
-
-          if (hasTestDataCases(test.testData)) {
-            await prisma.testRun.create({
-              data: {
-                testId,
-                status: 'FAILED',
-                environmentId: schedule.environmentId ?? undefined,
-                scheduleId: schedule.id,
-                finishedAt: new Date(),
-                durationMs: 0,
-                error: DATA_DRIVEN_CASE_REQUIRED_ERROR
-              }
-            });
-            console.log(`[Scheduler] Skipped data-driven test "${test.name}" without explicit case`);
-            continue;
-          }
-
-          const run = await prisma.testRun.create({
-            data: {
-              testId,
-              status: 'PENDING',
-              environmentId: schedule.environmentId ?? undefined,
-              scheduleId: schedule.id
-            }
-          });
-
-          await testQueue.add('run', {
-            testRunId: run.id,
-            testId,
-            environmentId: schedule.environmentId ?? undefined
-          });
-        }
-
-        await prisma.schedule.update({
-          where: { id: schedule.id },
-          data: { lastRunAt: new Date() }
-        });
-
-        console.log(`[Scheduler] Schedule "${schedule.name}" queued ${testIds.length} tests`);
-      } catch (error) {
-        console.error(`[Scheduler] Error in schedule "${schedule.name}":`, error);
-      }
-    });
-
-    this.tasks.set(schedule.id, task);
-    console.log(`[Scheduler] Registered "${schedule.name}" → ${schedule.cron}`);
+  async register(schedule: Schedule): Promise<void> {
+    if (!schedule.enabled) { await this.unregister(schedule.id); return; }
+    await scheduleQueue.upsertJobScheduler(
+      schedule.id,
+      { pattern: schedule.cron, tz: schedule.timezone ?? 'UTC' },
+      // ponytail: bounded fire-job history
+      { name: 'fire', data: { scheduleId: schedule.id }, opts: { removeOnComplete: true, removeOnFail: 100 } }
+    );
   }
 
-  unregister(scheduleId: string) {
-    const task = this.tasks.get(scheduleId);
-    if (!task) return;
-
-    task.stop();
-    this.tasks.delete(scheduleId);
+  async unregister(id: string): Promise<void> {
+    await scheduleQueue.removeJobScheduler(id).catch(() => undefined);
   }
 
-  async loadAll() {
-    const schedules = await prisma.schedule.findMany({
-      where: { enabled: true }
-    });
+  // ponytail: no-op — BullMQ schedulers persist in Redis by design; removing on shutdown defeats restart-safety
+  stopAll(): void { /* intentional no-op */ }
 
-    for (const schedule of schedules) {
-      this.register(schedule);
-    }
-
+  async loadAll(): Promise<void> {
+    const schedules = await prisma.schedule.findMany({ where: { enabled: true } });
+    for (const s of schedules) await this.register(s);
     console.log(`[Scheduler] Loaded ${schedules.length} schedules`);
   }
 }

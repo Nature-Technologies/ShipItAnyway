@@ -10,7 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import prisma from './prisma';
 import { authRoutes } from './routes/auth';
-import { startTestWorker } from './queue/worker';
+import { startTestWorker, stopTestWorker } from './queue/worker';
+import { testQueue } from './queue/queue';
+import { startScheduleWorker, stopScheduleWorker, scheduleQueue } from './queue/schedule-queue';
+import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
 import { channelRoutes } from './routes/channels';
 import { exportRoutes } from './routes/export';
@@ -23,6 +26,7 @@ import { projectRoutes } from './routes/projects';
 import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
+import { fixtureRoutes } from './routes/fixtures';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -30,6 +34,7 @@ const envCandidates = [
 ];
 const screenshotsDir = path.resolve(process.env.SCREENSHOTS_DIR || './screenshots');
 const tracesDir = path.resolve(process.env.TRACES_DIR || './traces');
+const fixturesDir = path.resolve(process.env.FIXTURES_DIR || './fixtures');
 const defaultFrontendOrigins = [
   'http://localhost:5173',
   'http://localhost:80',
@@ -67,6 +72,7 @@ for (const envPath of envCandidates) {
 
 fs.mkdirSync(screenshotsDir, { recursive: true });
 fs.mkdirSync(tracesDir, { recursive: true });
+fs.mkdirSync(fixturesDir, { recursive: true });
 
 async function start() {
   const fastify = Fastify({ logger: true });
@@ -189,6 +195,8 @@ async function start() {
     }
   });
 
+  await fastify.register(import('@fastify/multipart'), { limits: { fileSize: 50 * 1024 * 1024 } });
+
   await fastify.register(projectRoutes);
   await fastify.register(environmentRoutes);
   await fastify.register(channelRoutes);
@@ -200,7 +208,9 @@ async function start() {
   await fastify.register(runRoutes);
   await fastify.register(webhookRoutes);
   await fastify.register(recordingRoutes);
+  await fastify.register(fixtureRoutes);
   await startTestWorker();
+  startScheduleWorker();
   await schedulerService.loadAll();
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
@@ -219,6 +229,37 @@ async function start() {
   });
 
   await fastify.listen({ port, host: '0.0.0.0' });
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    fastify.log.info(`Received ${signal}, shutting down gracefully`);
+
+    // ponytail: hard-exit ceiling if a close() hangs, so we never re-hang the terminal
+    const forceExit = setTimeout(() => {
+      fastify.log.error('Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+
+    try {
+      schedulerService.stopAll();
+      await fastify.close();
+      await stopTestWorker();
+      await testQueue.close();
+      await stopScheduleWorker();
+      await scheduleQueue.close();
+      await redis.quit();
+      process.exit(0);
+    } catch (error) {
+      fastify.log.error(error, 'Error during shutdown');
+      process.exit(1);
+    }
+  };
+
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 void start().catch((error) => {

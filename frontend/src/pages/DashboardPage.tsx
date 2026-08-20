@@ -384,9 +384,10 @@ export default function DashboardPage() {
                           {
                             title: 'Check',
                             dataIndex: 'checkName',
+                            width: 280,
                             render: (value: string, row: DashboardRecentRun) => (
                               <Space direction="vertical" size={0}>
-                                <Button type="link" style={{ padding: 0, height: 'auto' }} onClick={() => handleOpenCheck(row.testId)}>
+                                <Button type="link" style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left' }} onClick={() => handleOpenCheck(row.testId)}>
                                   {value}
                                 </Button>
                                 <Text type="secondary" style={{ fontSize: 12 }}>
