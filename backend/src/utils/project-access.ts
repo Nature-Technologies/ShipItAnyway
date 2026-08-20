@@ -158,12 +158,6 @@ export function redactEnvironmentVariables(variables: Record<string, string>, vi
   );
 }
 
-export async function getProjectOwnersCount(projectId: string) {
-  return prisma.projectMember.count({
-    where: { projectId, role: 'OWNER', status: 'ACTIVE' }
-  });
-}
-
 export async function upsertProjectMember(data: {
   projectId: string;
   email: string;

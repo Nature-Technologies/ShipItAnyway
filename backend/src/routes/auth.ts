@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import prisma from '../prisma';
-import { canCreateProject, isProtectedAdminEmail } from '../utils/project-access';
+import { canCreateProject, isSuperadmin } from '../utils/project-access';
 
 const LoginSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -52,7 +52,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       token,
       email: user.email,
       canCreateProject: await canCreateProject(user.id, user.email),
-      isSystemAdmin: isProtectedAdminEmail(user.email)
+      isSystemAdmin: await isSuperadmin(user.id)
     };
   });
 
@@ -64,7 +64,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       userId: payload.userId,
       email: payload.email,
       canCreateProject: await canCreateProject(payload.userId, payload.email),
-      isSystemAdmin: isProtectedAdminEmail(payload.email)
+      isSystemAdmin: await isSuperadmin(payload.userId)
     };
   });
 
