@@ -15,7 +15,7 @@ export function resolveFixturePath(storedName: string): string {
 export async function fixtureRoutes(fastify: FastifyInstance) {
   fastify.post<{ Params: { projectId: string } }>('/projects/:projectId/fixtures', async (req, reply) => {
     const { userId } = getAuthUser(req);
-    await requireScope(req.params.projectId, userId, 'checks:edit');
+    await requireScope(req.params.projectId, userId, 'checks_edit');
     const data = await req.file();
     if (!data) return reply.code(400).send({ error: 'No file uploaded' });
     await fs.mkdir(FIXTURES_DIR, { recursive: true });
@@ -34,7 +34,7 @@ export async function fixtureRoutes(fastify: FastifyInstance) {
 
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/fixtures', async (req) => {
     const { userId } = getAuthUser(req);
-    await requireScope(req.params.projectId, userId, 'checks:read');
+    await requireScope(req.params.projectId, userId, 'checks_read');
     const fixtures = await prisma.fixture.findMany({
       where: { projectId: req.params.projectId }, orderBy: { createdAt: 'desc' }
     });

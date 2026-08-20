@@ -42,7 +42,7 @@ export async function testRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/tests', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.projectId, userId, 'checks:read');
+      await requireScope(req.params.projectId, userId, 'checks_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -63,7 +63,7 @@ export async function testRoutes(fastify: FastifyInstance) {
     if (!test) return reply.status(404).send({ error: 'Test not found' });
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(test.projectId, userId, 'checks:read');
+      await requireScope(test.projectId, userId, 'checks_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -84,7 +84,7 @@ export async function testRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.projectId, userId, 'checks:edit');
+      await requireScope(req.params.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -131,7 +131,7 @@ export async function testRoutes(fastify: FastifyInstance) {
       if (!test) return reply.status(404).send({ error: 'Test not found' });
 
       const { userId } = getAuthUser(req);
-      await requireScope(test.projectId, userId, 'checks:edit');
+      await requireScope(test.projectId, userId, 'checks_edit');
 
       await prisma.test.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
@@ -148,7 +148,7 @@ export async function testRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(result.data.projectId, userId, 'checks:edit');
+      await requireScope(result.data.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

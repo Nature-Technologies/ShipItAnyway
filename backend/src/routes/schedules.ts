@@ -104,7 +104,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/schedules', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.projectId, userId, 'schedules:read');
+      await requireScope(req.params.projectId, userId, 'schedules_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -162,7 +162,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(schedule.projectId, userId, 'schedules:read');
+      await requireScope(schedule.projectId, userId, 'schedules_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -216,7 +216,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.projectId, userId, 'schedules:edit');
+      await requireScope(req.params.projectId, userId, 'schedules_edit');
       await validateScheduleTarget(
         req.params.projectId,
         result.data.suiteId ?? undefined,
@@ -255,7 +255,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(current.projectId, userId, 'schedules:edit');
+      await requireScope(current.projectId, userId, 'schedules_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -309,7 +309,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
     const schedule = await loadScheduleOr404(req.params.id);
     if (!schedule) return reply.status(404).send({ error: 'Schedule not found' });
     try {
-      await requireScope(schedule.projectId, userId, 'schedules:edit');
+      await requireScope(schedule.projectId, userId, 'schedules_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -329,7 +329,7 @@ export async function scheduleRoutes(fastify: FastifyInstance) {
       if (!current) return reply.status(404).send({ error: 'Schedule not found' });
 
       const { userId } = getAuthUser(req);
-      await requireScope(current.projectId, userId, 'schedules:edit');
+      await requireScope(current.projectId, userId, 'schedules_edit');
 
       await schedulerService.unregister(req.params.id);
       await prisma.schedule.delete({ where: { id: req.params.id } });

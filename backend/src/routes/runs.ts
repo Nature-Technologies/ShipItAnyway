@@ -58,7 +58,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(test.projectId, userId, 'runs:trigger');
+      await requireScope(test.projectId, userId, 'runs_trigger');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -125,7 +125,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(test.projectId, userId, 'runs:trigger');
+      await requireScope(test.projectId, userId, 'runs_trigger');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -227,7 +227,7 @@ export async function runRoutes(fastify: FastifyInstance) {
     if (!run) return reply.status(404).send({ error: 'Run not found' });
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(run.test.project.id, userId, 'runs:read');
+      await requireScope(run.test.project.id, userId, 'runs_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -282,7 +282,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(batch.test.projectId, userId, 'runs:read');
+      await requireScope(batch.test.projectId, userId, 'runs_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -318,7 +318,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(test.projectId, userId, 'runs:read');
+      await requireScope(test.projectId, userId, 'runs_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

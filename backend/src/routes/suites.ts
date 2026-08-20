@@ -22,7 +22,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/suites', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.projectId, userId, 'checks:read');
+      await requireScope(req.params.projectId, userId, 'checks_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -42,7 +42,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.projectId, userId, 'checks:edit');
+      await requireScope(req.params.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -84,7 +84,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
       if (!current) return reply.status(404).send({ error: 'Suite not found' });
 
       const { userId } = getAuthUser(req);
-      await requireScope(current.projectId, userId, 'checks:edit');
+      await requireScope(current.projectId, userId, 'checks_edit');
 
       const nextName = result.data.name ?? current.name;
       const nextTestIds = result.data.testIds ? suiteTestIds(result.data.testIds) : suiteTestIds(current.testIds);
@@ -128,7 +128,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
       if (!current) return reply.status(404).send({ error: 'Suite not found' });
 
       const { userId } = getAuthUser(req);
-      await requireScope(current.projectId, userId, 'checks:edit');
+      await requireScope(current.projectId, userId, 'checks_edit');
 
       await prisma.suite.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
@@ -151,7 +151,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(suite.projectId, userId, 'checks:edit');
+      await requireScope(suite.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

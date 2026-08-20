@@ -26,6 +26,16 @@ async function buildApp(userId: string, email: string) {
   return app;
 }
 
+async function joinProject(projectId: string, userId: string, groupName: 'OWNER' | 'VIEWER') {
+  const g = await prisma.group.findUniqueOrThrow({ where: { name: groupName } });
+  await prisma.userGroup.upsert({
+    where: { userId_groupId: { userId, groupId: g.id } }, update: {}, create: { userId, groupId: g.id }
+  });
+  await prisma.team.create({
+    data: { name: 'harness', projects: { create: { projectId } }, members: { create: { userId } } }
+  });
+}
+
 async function createProjectAccess() {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const user = await prisma.user.create({
@@ -39,15 +49,7 @@ async function createProjectAccess() {
     data: { name: `Data case run ${suffix}` }
   });
 
-  await prisma.projectMember.create({
-    data: {
-      projectId: project.id,
-      userId: user.id,
-      email: user.email,
-      role: 'OWNER',
-      status: 'ACTIVE'
-    }
-  });
+  await joinProject(project.id, user.id, 'OWNER');
 
   return { user, project };
 }
@@ -561,15 +563,7 @@ test('run batch detail API enforces access and returns ordered runs without data
       passwordHash: 'not-used'
     }
   });
-  await prisma.projectMember.create({
-    data: {
-      projectId: project.id,
-      userId: viewer.id,
-      email: viewer.email,
-      role: 'VIEWER',
-      status: 'ACTIVE'
-    }
-  });
+  await joinProject(project.id, viewer.id, 'VIEWER');
 
   const ownerApp = await buildApp(user.id, user.email);
   const viewerApp = await buildApp(viewer.id, viewer.email);

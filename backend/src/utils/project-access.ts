@@ -1,72 +1,61 @@
 import type { FastifyRequest } from 'fastify';
-import type { ProjectMember, ProjectMemberStatus, ProjectRole } from '@prisma/client';
+import { Scope, type ProjectMemberStatus, type ProjectRole } from '@prisma/client';
 import prisma from '../prisma';
 import { FALLBACK_ADMIN_EMAIL } from '../constants/admin';
+
+export { Scope };
 
 export type AuthUser = {
   userId: string;
   email: string;
 };
 
-export type ProjectAccess = {
-  project: { id: string; name: string };
-  member: ProjectMember;
-};
-
 export type ProjectAccessError = Error & { statusCode?: number };
 
-export type Scope =
-  | 'runs:read' | 'runs:trigger'
-  | 'checks:read' | 'checks:edit'
-  | 'schedules:read' | 'schedules:edit'
-  | 'environments:read' | 'environments:edit' | 'environments:reveal-secrets'
-  | 'alerts:read' | 'alerts:edit'
-  | 'members:read'
-  | 'teams:manage'
-  | 'project:manage' | 'project:delete';
+export async function memberOf(userId: string, projectId: string): Promise<boolean> {
+  const hit = await prisma.teamMember.findFirst({
+    where: { userId, team: { projects: { some: { projectId } } } },
+    select: { teamId: true }
+  });
+  return Boolean(hit);
+}
 
-const VIEWER_SCOPES: Scope[] = [
-  'runs:read', 'checks:read', 'schedules:read',
-  'environments:read', 'alerts:read', 'members:read'
-];
-const EDITOR_SCOPES: Scope[] = [
-  ...VIEWER_SCOPES,
-  'runs:trigger', 'checks:edit', 'schedules:edit',
-  'environments:edit', 'alerts:edit', 'environments:reveal-secrets'
-];
-const OWNER_SCOPES: Scope[] = [
-  ...EDITOR_SCOPES,
-  'project:manage', 'project:delete', 'teams:manage'
-];
-
-// ponytail: role→scope shim. Roadmap 2.2 replaces this body with a group-union lookup; no route changes.
-export function resolveScopes(member: ProjectMember): Set<Scope> {
-  switch (member.role) {
-    case 'OWNER': return new Set(OWNER_SCOPES);
-    case 'EDITOR': return new Set(EDITOR_SCOPES);
-    case 'VIEWER': return new Set(VIEWER_SCOPES);
-    default: return new Set();
+async function resolveUserScopes(userId: string): Promise<{ membershipScopes: Set<Scope>; globalScopes: Set<Scope> }> {
+  const rows = await prisma.userGroup.findMany({
+    where: { userId },
+    select: { group: { select: { isGlobal: true, scopes: { select: { scope: true } } } } }
+  });
+  const membershipScopes = new Set<Scope>();
+  const globalScopes = new Set<Scope>();
+  for (const { group } of rows) {
+    for (const { scope } of group.scopes) (group.isGlobal ? globalScopes : membershipScopes).add(scope);
   }
+  return { membershipScopes, globalScopes };
 }
 
-export function can(access: ProjectAccess, scope: Scope): boolean {
-  return resolveScopes(access.member).has(scope);
+// Effective scopes on a project = global group scopes ∪ (member of the project ? membership scopes : ∅).
+export async function resolveScopes(userId: string, projectId: string): Promise<Set<Scope>> {
+  const { membershipScopes, globalScopes } = await resolveUserScopes(userId);
+  const effective = new Set<Scope>(globalScopes);
+  // ponytail: one membership lookup; fold into resolveUserScopes if a hot route shows up.
+  if (await memberOf(userId, projectId)) for (const s of membershipScopes) effective.add(s);
+  return effective;
 }
 
-export async function requireScope(projectId: string, userId: string, scope: Scope): Promise<ProjectAccess> {
-  const access = await getProjectAccess(projectId, userId);
-  if (!access) {
+export async function can(projectId: string, userId: string, scope: Scope): Promise<boolean> {
+  return (await resolveScopes(userId, projectId)).has(scope);
+}
+
+// Returns the effective scope set on success (callers use it for secret masking); throws 404/403 otherwise.
+export async function requireScope(projectId: string, userId: string, scope: Scope): Promise<Set<Scope>> {
+  const scopes = await resolveScopes(userId, projectId);
+  if (!scopes.has(scope)) {
     const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
     const error = new Error(project ? 'Forbidden' : 'Project not found') as ProjectAccessError;
     error.statusCode = project ? 403 : 404;
     throw error;
   }
-  if (!can(access, scope)) {
-    const error = new Error('Forbidden') as ProjectAccessError;
-    error.statusCode = 403;
-    throw error;
-  }
-  return access;
+  return scopes;
 }
 
 function normalizeEmail(email: string) {
@@ -92,56 +81,29 @@ export function getAuthUser(request: FastifyRequest): AuthUser {
   return { userId: payload.userId, email: payload.email };
 }
 
-export async function getProjectAccess(projectId: string, userId: string): Promise<ProjectAccess | null> {
-  const [project, member] = await Promise.all([
-    prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, name: true }
-    }),
-    prisma.projectMember.findFirst({
-      where: {
-        projectId,
-        userId,
-        status: 'ACTIVE'
-      }
-    })
-  ]);
-
-  if (!project || !member) {
-    return null;
+export async function getAccessibleProjectIds(userId: string): Promise<string[]> {
+  const { globalScopes } = await resolveUserScopes(userId);
+  if (globalScopes.size > 0) {
+    const all = await prisma.project.findMany({ select: { id: true } });
+    return all.map((p) => p.id);
   }
-
-  return { project, member };
+  const links = await prisma.teamProject.findMany({
+    where: { team: { members: { some: { userId } } } },
+    select: { projectId: true }
+  });
+  return [...new Set(links.map((l) => l.projectId))];
 }
 
-export async function getAccessibleProjectIds(userId: string) {
-  const memberships = await prisma.projectMember.findMany({
-    where: { userId, status: 'ACTIVE' }
+// Keeps the _email param for the 2.1 call-site signature; protected admins are already in the
+// SUPERADMIN (isGlobal) group via migration/seed, so no email branch is needed.
+export async function canCreateProject(userId: string, _email: string): Promise<boolean> {
+  const rows = await prisma.userGroup.findMany({
+    where: { userId },
+    select: { group: { select: { isGlobal: true, scopes: { select: { scope: true } } } } }
   });
-  return memberships
-    .filter((member) => [...resolveScopes(member)].some((scope) => scope.endsWith(':read')))
-    .map((member) => member.projectId);
-}
-
-export async function canCreateProject(userId: string, email: string) {
-  if (isProtectedAdminEmail(email)) {
-    return true;
-  }
-
-  const editableMembership = await prisma.projectMember.findFirst({
-    where: {
-      userId,
-      status: 'ACTIVE',
-      role: {
-        in: ['OWNER', 'EDITOR']
-      }
-    },
-    select: {
-      id: true
-    }
-  });
-
-  return Boolean(editableMembership);
+  return rows.some(({ group }) =>
+    group.isGlobal || group.scopes.some((s) => s.scope === 'project_manage' || s.scope === 'checks_edit')
+  );
 }
 
 export function getProjectAccessStatusCode(error: unknown) {

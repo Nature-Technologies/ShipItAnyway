@@ -44,7 +44,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
 
       const { userId } = getAuthUser(req);
       try {
-        await requireScope(test.projectId, userId, 'checks:edit');
+        await requireScope(test.projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }
@@ -96,7 +96,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(test.projectId, userId, 'checks:edit');
+      await requireScope(test.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

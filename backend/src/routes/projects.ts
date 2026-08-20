@@ -5,11 +5,14 @@ import prisma from '../prisma';
 import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/project.schema';
 import type { ProjectRole, RunStatus } from '@prisma/client';
 import {
+  getAccessibleProjectIds,
   getAuthUser,
   getProjectAccessStatusCode,
   getProjectOwnersCount,
   isProtectedAdminEmail,
   requireScope,
+  resolveScopes,
+  Scope,
 } from '../utils/project-access';
 
 type ProjectListItem = {
@@ -17,7 +20,7 @@ type ProjectListItem = {
   name: string;
   createdAt: Date;
   updatedAt: Date;
-  currentUserRole: ProjectRole | null;
+  currentUserScopes: Scope[];
   checksCount: number;
   activeSchedulesCount: number;
   alertChannelsCount: number;
@@ -67,29 +70,16 @@ function serializeProjectMember(member: {
 export async function projectRoutes(fastify: FastifyInstance) {
   fastify.get('/projects', async (req, reply) => {
     const { userId } = getAuthUser(req);
+    const accessibleIds = await getAccessibleProjectIds(userId);
     const accessibleProjects = await prisma.project.findMany({
       where: {
-        members: {
-          some: {
-            userId,
-            status: 'ACTIVE'
-          }
-        }
+        id: { in: accessibleIds }
       },
       select: {
         id: true,
         name: true,
         createdAt: true,
         updatedAt: true,
-        members: {
-          where: {
-            userId,
-            status: 'ACTIVE'
-          },
-          select: {
-            role: true
-          }
-        },
         tests: {
           select: {
             id: true
@@ -159,7 +149,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
       }
     }
 
-    const result: ProjectListItem[] = accessibleProjects.map((project) => {
+    const result: ProjectListItem[] = await Promise.all(accessibleProjects.map(async (project) => {
       const projectRecentRuns = recentRunsByProject.get(project.id) ?? [];
       const projectLatestRuns = latestRunsByProject.get(project.id) ?? [];
       const projectLatestRun = projectLatestRuns[0] ?? null;
@@ -189,7 +179,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
         name: project.name,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        currentUserRole: project.members[0]?.role ?? null,
+        currentUserScopes: Array.from(await resolveScopes(userId, project.id)),
         checksCount: project.tests.length,
         activeSchedulesCount: project.schedules.length,
         alertChannelsCount: project.channels.length,
@@ -204,7 +194,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
         flakyChecks,
         health
       };
-    });
+    }));
 
     return result;
   });
@@ -213,7 +203,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const { userId } = getAuthUser(req);
     let access;
     try {
-      access = await requireScope(req.params.id, userId, 'members:read');
+      access = await requireScope(req.params.id, userId, 'members_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -359,7 +349,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     return {
       ...project,
-      currentUserRole: access.member.role,
+      currentUserScopes: Array.from(access),
       summary: {
         checksCount: project.tests.length,
         lastResult: latestProjectRun?.status ?? null,
@@ -433,7 +423,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project:manage');
+      await requireScope(req.params.id, userId, 'project_manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -452,7 +442,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string } }>('/projects/:id', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project:delete');
+      await requireScope(req.params.id, userId, 'project_delete');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -468,7 +458,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { id: string } }>('/projects/:id/members', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project:manage');
+      await requireScope(req.params.id, userId, 'project_manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -508,7 +498,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.post<{ Params: { id: string } }>('/projects/:id/members', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project:manage');
+      await requireScope(req.params.id, userId, 'project_manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -586,7 +576,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.patch<{ Params: { id: string; memberId: string } }>('/projects/:id/members/:memberId', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project:manage');
+      await requireScope(req.params.id, userId, 'project_manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -626,7 +616,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string; memberId: string } }>('/projects/:id/members/:memberId', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireScope(req.params.id, userId, 'project:manage');
+      await requireScope(req.params.id, userId, 'project_manage');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

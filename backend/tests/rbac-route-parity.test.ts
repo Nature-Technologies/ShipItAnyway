@@ -27,14 +27,22 @@ async function makeUser(tag: string) {
   });
 }
 
+async function joinProject(projectId: string, userId: string, groupName: ProjectRole) {
+  const g = await prisma.group.findUniqueOrThrow({ where: { name: groupName } });
+  await prisma.userGroup.upsert({
+    where: { userId_groupId: { userId, groupId: g.id } }, update: {}, create: { userId, groupId: g.id }
+  });
+  await prisma.team.create({
+    data: { name: 'tier', projects: { create: { projectId } }, members: { create: { userId } } }
+  });
+}
+
 async function seedTiers() {
   const project = await prisma.project.create({ data: { name: `rbac-${Date.now()}` } });
   const users: Record<ProjectRole | 'OUTSIDER', { id: string; email: string }> = {} as never;
   for (const role of ['OWNER', 'EDITOR', 'VIEWER'] as ProjectRole[]) {
     const u = await makeUser(role.toLowerCase());
-    await prisma.projectMember.create({
-      data: { projectId: project.id, userId: u.id, email: u.email, role, status: 'ACTIVE' }
-    });
+    await joinProject(project.id, u.id, role);
     users[role] = u;
   }
   users.OUTSIDER = await makeUser('outsider');
