@@ -19,6 +19,11 @@ const UserLookupSchema = z.object({
   email: z.string().trim().toLowerCase().email()
 });
 
+const AcceptInviteSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8) // same rule as ChangePasswordSchema
+});
+
 export async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/auth/login', {
     config: {
@@ -72,6 +77,44 @@ export async function authRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid or expired invite' }); // generic — no enumeration
     }
     return { email: invite.email };
+  });
+
+  fastify.post('/auth/accept-invite', {
+    config: { rateLimit: { max: 10, timeWindow: '5 minutes' } }
+  }, async (req, reply) => {
+    const parsed = AcceptInviteSchema.safeParse(req.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid or expired invite' });
+
+    const tokenHash = hashInviteToken(parsed.data.token);
+    const user = await prisma.$transaction(async (tx) => {
+      const invite = await tx.invite.findUnique({ where: { tokenHash } });
+      if (!invite || invite.status !== 'PENDING' || invite.expiresAt < new Date()) return null;
+
+      const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+      const u = await tx.user.upsert({
+        where: { email: invite.email },
+        update: { passwordHash },
+        create: { email: invite.email, passwordHash }
+      });
+
+      const groupId = invite.groupId
+        ?? (await tx.group.findFirstOrThrow({ where: { name: 'VIEWER' } })).id;
+      await tx.userGroup.upsert({
+        where: { userId_groupId: { userId: u.id, groupId } }, update: {},
+        create: { userId: u.id, groupId }
+      });
+      if (invite.teamId) {
+        await tx.teamMember.upsert({
+          where: { teamId_userId: { teamId: invite.teamId, userId: u.id } }, update: {},
+          create: { teamId: invite.teamId, userId: u.id }
+        });
+      }
+      await tx.invite.update({ where: { id: invite.id }, data: { status: 'ACCEPTED', acceptedAt: new Date() } });
+      return u;
+    });
+
+    if (!user) return reply.status(400).send({ error: 'Invalid or expired invite' });
+    return { ok: true };
   });
 
   fastify.get('/auth/me', async (req) => {
