@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { enqueueTestRun } from '../queue/batch-sequencer';
-import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
 import { buildDataCaseSnapshot, getTestDataCases } from '../utils/test-data';
 
 const TRACES_DIR = path.resolve(process.env.TRACES_DIR || './traces');
@@ -58,7 +58,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(test.projectId, userId, 'runs:trigger');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -125,7 +125,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(test.projectId, userId, 'runs:trigger');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -227,7 +227,7 @@ export async function runRoutes(fastify: FastifyInstance) {
     if (!run) return reply.status(404).send({ error: 'Run not found' });
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(run.test.project.id, userId, ['OWNER', 'EDITOR', 'VIEWER']);
+      await requireScope(run.test.project.id, userId, 'runs:read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -282,7 +282,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(batch.test.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
+      await requireScope(batch.test.projectId, userId, 'runs:read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -318,7 +318,7 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
+      await requireScope(test.projectId, userId, 'runs:read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
