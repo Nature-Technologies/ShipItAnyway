@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { testQueue } from '../queue/queue';
-import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
 import { DATA_DRIVEN_CASE_REQUIRED_ERROR, hasTestDataCases } from '../utils/test-data';
 
 const SuiteSchema = z.object({
@@ -22,7 +22,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/suites', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
+      await requireScope(req.params.projectId, userId, 'checks:read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -42,7 +42,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(req.params.projectId, userId, 'checks:edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -84,7 +84,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
       if (!current) return reply.status(404).send({ error: 'Suite not found' });
 
       const { userId } = getAuthUser(req);
-      await requireProjectRole(current.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(current.projectId, userId, 'checks:edit');
 
       const nextName = result.data.name ?? current.name;
       const nextTestIds = result.data.testIds ? suiteTestIds(result.data.testIds) : suiteTestIds(current.testIds);
@@ -128,7 +128,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
       if (!current) return reply.status(404).send({ error: 'Suite not found' });
 
       const { userId } = getAuthUser(req);
-      await requireProjectRole(current.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(current.projectId, userId, 'checks:edit');
 
       await prisma.suite.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
@@ -151,7 +151,7 @@ export async function suiteRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(suite.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(suite.projectId, userId, 'checks:edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
