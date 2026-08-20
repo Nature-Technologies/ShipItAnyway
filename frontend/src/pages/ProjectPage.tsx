@@ -49,15 +49,12 @@ import {
   deleteChannel,
   deleteEnvironment,
   deleteSchedule,
-  addProjectMember,
-  deleteProjectMember,
   getChannels,
   getEnvironments,
   getProject,
   getProjectMembers,
   getSchedules,
   getSuites,
-  checkUserExists,
   importTestSpec,
   runSuite,
   runAllEnabledTestCases,
@@ -68,7 +65,17 @@ import {
   updateEnvironment,
   updateSchedule,
   updateProject,
-  updateProjectMember
+  getTeams,
+  createTeam,
+  deleteTeam,
+  attachTeamToProject,
+  addTeamMember,
+  removeTeamMember,
+  getInvites,
+  createInvite,
+  revokeInvite,
+  getGroups,
+  getUsers
 } from '../api/client';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
@@ -87,11 +94,15 @@ import type {
   ProjectMember,
   ProjectCheck,
   ProjectWorkspace,
-  ProjectRole,
   RunStatus,
   Schedule,
-  Suite
+  Suite,
+  Team,
+  Invite,
+  Group
 } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { deriveProjectGates } from '../utils/scopes';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -468,6 +479,7 @@ function resolveTabFromPathname(pathname: string): ProjectTabKey {
 }
 
 export default function ProjectPage() {
+  const { isSuperadmin } = useAuth();
   const { projectId } = useParams<{ projectId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -527,28 +539,30 @@ export default function ProjectPage() {
   const [deleteProjectConfirmText, setDeleteProjectConfirmText] = useState('');
   const [deletingProject, setDeletingProject] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [memberModalOpen, setMemberModalOpen] = useState(false);
-  const [memberSaving, setMemberSaving] = useState(false);
-  const [memberLookupLoading, setMemberLookupLoading] = useState(false);
-  const [memberUserExists, setMemberUserExists] = useState<boolean | null>(null);
-  const [memberForm, setMemberForm] = useState<{ email: string; password: string; role: ProjectRole }>({
-    email: '',
-    password: '',
-    role: 'VIEWER'
-  });
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [users, setUsers] = useState<Array<{ id: string; email: string }>>([]);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteForm, setInviteForm] = useState<{ email: string; teamId?: string; groupId?: string }>({ email: '' });
+  const [teamName, setTeamName] = useState('');
+  const [teamSaving, setTeamSaving] = useState(false);
   const settingsHydratedRef = useRef(false);
 
   const summary = project?.summary;
   const hasChecks = (project?.tests.length ?? 0) > 0;
-  const currentUserRole = project?.currentUserRole ?? null;
-  const isViewer = currentUserRole === 'VIEWER';
-  const isEditor = currentUserRole === 'EDITOR';
-  const isOwner = currentUserRole === 'OWNER';
-  const canWriteProject = isOwner || isEditor;
-  const canManageMembers = isOwner;
-  const canManageSchedules = canWriteProject;
-  const canManageEnvironments = canWriteProject;
-  const isProtectedAdminMember = (member: ProjectMember) => Boolean(member.isSystemAdmin);
+  const gates = deriveProjectGates(project?.currentUserScopes ?? []);
+  const canWriteProject = !gates.readOnly;          // editor-equivalent: holds some *_edit scope
+  const canManageMembers = gates.canReadMembers;    // Members tab visibility
+  const canManageTeams = gates.canManageTeams;      // team + invite mutations
+  const canManageSchedules = gates.canEditSchedules;
+  const canManageEnvironments = gates.canEditEnvironments;
+
+  useEffect(() => {
+    if (activeTab === 'members' && canManageMembers) void loadMembersTab();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, canManageMembers, projectId]);
 
   function settledValue<T>(result: PromiseSettledResult<T>, fallback: T): T {
     return result.status === 'fulfilled' ? result.value : fallback;
@@ -563,7 +577,7 @@ export default function ProjectPage() {
         getEnvironments(projectId!),
         getSchedules(projectId!),
         getChannels(projectId!),
-        projectData.currentUserRole === 'OWNER' ? getProjectMembers(projectId!) : Promise.resolve([])
+        deriveProjectGates(projectData.currentUserScopes ?? []).canReadMembers ? getProjectMembers(projectId!) : Promise.resolve([])
       ]);
       setProject(projectData);
       setProjectName(projectData.name);
@@ -592,9 +606,9 @@ export default function ProjectPage() {
     setDeleteProjectConfirmText('');
     setDeleteProjectModalOpen(false);
     setProjectMembers([]);
-    setMemberModalOpen(false);
-    setMemberLookupLoading(false);
-    setMemberUserExists(null);
+    setTeams([]);
+    setInvites([]);
+    setInviteModalOpen(false);
   }, [projectId]);
 
   useEffect(() => {
@@ -1278,7 +1292,7 @@ export default function ProjectPage() {
   };
 
   const openDeleteProjectModal = () => {
-    if (!isOwner) {
+    if (!isSuperadmin) {
       message.warning('Only the project owner can delete the project');
       return;
     }
@@ -1303,136 +1317,107 @@ export default function ProjectPage() {
     }
   };
 
-  const openMemberInvite = () => {
-    setMemberForm({ email: '', password: '', role: 'VIEWER' });
-    setMemberLookupLoading(false);
-    setMemberUserExists(null);
-    setMemberModalOpen(true);
+  const extractError = (error: unknown, fallback: string) => {
+    const responseError =
+      error && typeof error === 'object' && 'response' in error
+        ? (error as { response?: { data?: { error?: string } } }).response?.data?.error
+        : null;
+    return typeof responseError === 'string' ? responseError : fallback;
   };
 
-  useEffect(() => {
-    if (!memberModalOpen) {
-      setMemberLookupLoading(false);
-      setMemberUserExists(null);
-      return;
-    }
+  const loadMembersTab = async () => {
+    if (!projectId) return;
+    const [membersR, teamsR, invitesR, groupsR, usersR] = await Promise.allSettled([
+      getProjectMembers(projectId),
+      getTeams(),
+      canManageTeams ? getInvites() : Promise.resolve([] as Invite[]),
+      isSuperadmin ? getGroups() : Promise.resolve([] as Group[]),
+      canManageTeams ? getUsers() : Promise.resolve([] as Array<{ id: string; email: string }>)
+    ]);
+    setProjectMembers(settledValue(membersR, []));
+    setTeams(settledValue(teamsR, []));
+    setInvites(settledValue(invitesR, []));
+    setGroups(settledValue(groupsR, []));
+    setUsers(settledValue(usersR, []));
+  };
 
-    const email = memberForm.email.trim().toLowerCase();
-    if (!isPotentialEmail(email)) {
-      setMemberLookupLoading(false);
-      setMemberUserExists(null);
-      return;
-    }
+  const openInvite = () => {
+    setInviteForm({ email: '' });
+    setInviteModalOpen(true);
+  };
 
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      setMemberLookupLoading(true);
-      void checkUserExists(email)
-        .then(({ exists }) => {
-          if (cancelled) return;
-          setMemberUserExists(exists);
-          if (exists) {
-            setMemberForm((current) => ({ ...current, password: '' }));
-          }
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setMemberUserExists(null);
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setMemberLookupLoading(false);
-          }
-        });
-    }, 300);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [memberForm.email, memberModalOpen]);
-
-  const handleCreateUserAccess = async () => {
-    if (!project) return;
-    if (!memberForm.email.trim()) {
-      message.error('Email is required');
-      return;
-    }
-
-    const email = memberForm.email.trim().toLowerCase();
-    if (!isPotentialEmail(email)) {
-      message.error('Enter a valid email address');
-      return;
-    }
-
-    let userExists = memberUserExists;
-    if (userExists === null) {
-      try {
-        const result = await checkUserExists(email);
-        userExists = result.exists;
-        setMemberUserExists(result.exists);
-        if (result.exists) {
-          setMemberForm((current) => ({ ...current, password: '' }));
-        }
-      } catch {
-        userExists = null;
-      }
-    }
-
-    const password = memberForm.password.trim();
-    if (userExists === false && !password) {
-      message.error('Password is required for a new user');
-      return;
-    }
-
-    setMemberSaving(true);
+  const handleCreateTeam = async () => {
+    if (!project || !teamName.trim()) { message.error('Team name is required'); return; }
+    setTeamSaving(true);
     try {
-      await addProjectMember(project.id, {
-        email,
-        password: userExists === true ? undefined : password,
-        role: memberForm.role
-      });
-      message.success('User access created');
-      setMemberModalOpen(false);
-      await load();
+      const team = await createTeam({ name: teamName.trim() });
+      await attachTeamToProject(team.id, project.id);
+      message.success('Team created');
+      setTeamName('');
+      await loadMembersTab();
     } catch (error) {
-      const responseError =
-        error && typeof error === 'object' && 'response' in error
-          ? (error as { response?: { data?: { error?: string } } }).response?.data?.error
-          : null;
-      const errorText =
-        typeof responseError === 'string'
-          ? responseError
-          : 'Failed to create user access';
-      message.error(errorText);
+      message.error(extractError(error, 'Failed to create team'));
     } finally {
-      setMemberSaving(false);
+      setTeamSaving(false);
     }
   };
 
-  const handleChangeMemberRole = async (member: ProjectMember, role: ProjectRole) => {
-    if (!project) return;
+  const handleDeleteTeam = async (teamId: string) => {
     try {
-      await updateProjectMember(project.id, member.id, { role });
-      message.success('Member role updated');
-      await load();
-    } catch {
-      message.error('Failed to update member');
-    }
-  };
-
-  const handleRemoveMember = async (member: ProjectMember) => {
-    if (!project) return;
-    try {
-      await deleteProjectMember(project.id, member.id);
-      message.success('Member removed');
-      await load();
+      await deleteTeam(teamId);
+      message.success('Team deleted');
+      await loadMembersTab();
     } catch (error) {
-      const responseError =
-        error && typeof error === 'object' && 'response' in error
-          ? (error as { response?: { data?: { error?: string } } }).response?.data?.error
-          : null;
-      message.error(typeof responseError === 'string' ? responseError : 'Failed to remove member');
+      message.error(extractError(error, 'Failed to delete team'));
+    }
+  };
+
+  const handleAddTeamMember = async (teamId: string, userId: string) => {
+    try {
+      await addTeamMember(teamId, userId);
+      message.success('Member added');
+      await loadMembersTab();
+    } catch (error) {
+      message.error(extractError(error, 'Failed to add member'));
+    }
+  };
+
+  const handleRemoveTeamMember = async (teamId: string, userId: string) => {
+    try {
+      await removeTeamMember(teamId, userId);
+      message.success('Member removed');
+      await loadMembersTab();
+    } catch (error) {
+      message.error(extractError(error, 'Failed to remove member'));
+    }
+  };
+
+  const handleCreateInvite = async () => {
+    if (!inviteForm.email.trim()) { message.error('Email is required'); return; }
+    setInviteSaving(true);
+    try {
+      await createInvite({
+        email: inviteForm.email.trim().toLowerCase(),
+        teamId: inviteForm.teamId,
+        groupId: inviteForm.groupId
+      });
+      message.success('Invite sent');
+      setInviteModalOpen(false);
+      await loadMembersTab();
+    } catch (error) {
+      message.error(extractError(error, 'Failed to send invite'));
+    } finally {
+      setInviteSaving(false);
+    }
+  };
+
+  const handleRevokeInvite = async (id: string) => {
+    try {
+      await revokeInvite(id);
+      message.success('Invite revoked');
+      await loadMembersTab();
+    } catch (error) {
+      message.error(extractError(error, 'Failed to revoke invite'));
     }
   };
 
@@ -1623,7 +1608,7 @@ export default function ProjectPage() {
                     >
                       {projectHeaderDescription}
                     </Text>
-                    {isViewer && (
+                    {gates.readOnly && (
                       <Alert
                         type="info"
                         showIcon
@@ -2536,7 +2521,7 @@ export default function ProjectPage() {
                               <Text type="secondary">Project name</Text>
                               <Input
                                 value={projectName}
-                                disabled={isViewer}
+                                disabled={gates.readOnly}
                                 onChange={(event) => {
                                   setProjectName(event.target.value);
                                   if (event.target.value.trim()) setProjectNameError(null);
@@ -2557,7 +2542,7 @@ export default function ProjectPage() {
                               <Text type="secondary">Default environment</Text>
                               <Select
                                 value={environments.length === 0 ? '' : projectDefaultEnvironmentId}
-                                disabled={isViewer || environments.length === 0}
+                                disabled={gates.readOnly || environments.length === 0}
                                 onChange={(value) => setProjectDefaultEnvironmentId(value)}
                                 placeholder="No default environment"
                                 style={{ marginTop: 8, width: '100%' }}
@@ -2573,7 +2558,7 @@ export default function ProjectPage() {
                               <Text type="secondary">Description</Text>
                               <Input.TextArea
                                 value={projectDescription}
-                                disabled={isViewer}
+                                disabled={gates.readOnly}
                                 onChange={(event) => {
                                   setProjectDescription(event.target.value);
                                   if (event.target.value.length <= 500) setProjectDescriptionError(null);
@@ -2601,7 +2586,7 @@ export default function ProjectPage() {
                               <Text type="secondary">Default device</Text>
                               <Select
                                 value={projectDefaultDevice}
-                                disabled={isViewer}
+                                disabled={gates.readOnly}
                                 onChange={(value) => setProjectDefaultDevice(value)}
                                 style={{ marginTop: 8, width: '100%' }}
                                 options={DEFAULT_DEVICE_OPTIONS.map((device) => ({ label: device, value: device }))}
@@ -2610,10 +2595,10 @@ export default function ProjectPage() {
                           </Col>
                         </Row>
                         <Space wrap>
-                        <Button type="primary" loading={savingProject} onClick={() => void handleSaveProject()} disabled={isViewer}>
+                        <Button type="primary" loading={savingProject} onClick={() => void handleSaveProject()} disabled={gates.readOnly}>
                           Save changes
                         </Button>
-                        <Button onClick={handleResetProjectSettings} disabled={!project || isViewer}>
+                        <Button onClick={handleResetProjectSettings} disabled={!project || gates.readOnly}>
                           Reset
                         </Button>
                         </Space>
@@ -2715,7 +2700,7 @@ export default function ProjectPage() {
                         Permanently delete this project, checks, schedules, environments, alerts, run history, screenshots, and traces.
                       </Text>
                     </div>
-                    <Button danger ghost onClick={openDeleteProjectModal} disabled={!isOwner}>
+                    <Button danger ghost onClick={openDeleteProjectModal} disabled={!isSuperadmin}>
                       Delete project
                     </Button>
                   </Space>
@@ -2726,77 +2711,100 @@ export default function ProjectPage() {
 
           {activeTab === 'members' && canManageMembers && (
             <Col span={24}>
-              <Card
-                style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }}
-                title="Project members"
-                extra={<Button type="primary" icon={<PlusOutlined />} onClick={openMemberInvite}>Create user access</Button>}
-              >
-                <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 16 }}>
-                  <Text type="secondary">Create user access by email, password, and role.</Text>
-                </Space>
-
-                <Table<ProjectMember>
-                  dataSource={projectMembers}
-                  rowKey="id"
-                  pagination={false}
-                  columns={[
-                    {
-                      title: 'Name / Email',
-                      render: (_: unknown, row) => (
-                        <Space direction="vertical" size={0}>
-                          <Space size={6} align="center">
-                            <Text strong>{row.user?.email ?? row.email}</Text>
-                            {isProtectedAdminMember(row) && <Tag color="red">System admin</Tag>}
-                          </Space>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{row.status === 'PENDING' ? 'Pending' : 'Active'}</Text>
-                        </Space>
-                      )
-                    },
-                    {
-                      title: 'Role',
-                      render: (_: unknown, row) => (
-                          <Select
-                          value={row.role}
-                          style={{ width: 150 }}
-                          options={[
-                            { label: 'Owner', value: 'OWNER' },
-                            { label: 'Editor', value: 'EDITOR' },
-                            { label: 'Viewer', value: 'VIEWER' }
-                          ]}
-                          onChange={(value) => void handleChangeMemberRole(row, value)}
-                          disabled={isProtectedAdminMember(row) || (row.role === 'OWNER' && projectMembers.filter((member) => member.role === 'OWNER').length <= 1)}
-                        />
-                      )
-                    },
-                    {
-                      title: 'Status',
-                      render: (_: unknown, row) =>
-                        row.status === 'PENDING' ? (
-                          <Tooltip title="User has not signed in with this email yet.">
-                            <Tag color="gold">Pending</Tag>
-                          </Tooltip>
-                        ) : (
-                          <Tag color="green">Active</Tag>
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Card
+                  style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }}
+                  title="Project members"
+                  extra={canManageTeams && (
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openInvite}>Invite</Button>
+                  )}
+                >
+                  <Table<ProjectMember>
+                    dataSource={projectMembers}
+                    rowKey="userId"
+                    pagination={false}
+                    locale={{ emptyText: 'No members yet' }}
+                    columns={[
+                      { title: 'Email', render: (_: unknown, row) => <Text strong>{row.email}</Text> },
+                      {
+                        title: 'Teams',
+                        render: (_: unknown, row) => (
+                          <Space size={4} wrap>{row.teams.map((t) => <Tag key={t.id}>{t.name}</Tag>)}</Space>
                         )
-                    },
-                    {
-                      title: 'Actions',
-                      render: (_: unknown, row) => (
-                        <Space>
-                          <Button
-                            size="small"
-                            danger
-                            onClick={() => void handleRemoveMember(row)}
-                            disabled={isProtectedAdminMember(row) || (row.role === 'OWNER' && projectMembers.filter((member) => member.role === 'OWNER').length <= 1)}
-                          >
-                            Remove
-                          </Button>
-                        </Space>
-                      )
-                    }
-                  ]}
-                />
-              </Card>
+                      },
+                      {
+                        title: 'Effective scopes',
+                        render: (_: unknown, row) => (
+                          <Space size={4} wrap>{row.scopes.map((s) => <Tag key={s} color="blue">{s}</Tag>)}</Space>
+                        )
+                      }
+                    ]}
+                  />
+                </Card>
+
+                {canManageTeams && (
+                  <Card style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }} title="Teams">
+                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                      <Space.Compact style={{ width: '100%', maxWidth: 420 }}>
+                        <Input placeholder="New team name" value={teamName} onChange={(event) => setTeamName(event.target.value)} />
+                        <Button type="primary" loading={teamSaving} onClick={() => void handleCreateTeam()}>Create team</Button>
+                      </Space.Compact>
+                      <Table<Team>
+                        dataSource={teams}
+                        rowKey="id"
+                        pagination={false}
+                        locale={{ emptyText: 'No teams yet' }}
+                        columns={[
+                          { title: 'Team', dataIndex: 'name' },
+                          { title: 'Members', render: (_: unknown, row) => row.memberCount ?? 0 },
+                          { title: 'Projects', render: (_: unknown, row) => row.projectCount ?? 0 },
+                          {
+                            title: 'Add member',
+                            render: (_: unknown, row) => (
+                              <Select
+                                showSearch
+                                style={{ width: 220 }}
+                                placeholder="Add user by email"
+                                value={undefined}
+                                options={users.map((u) => ({ label: u.email, value: u.id }))}
+                                onChange={(userId) => { if (userId) void handleAddTeamMember(row.id, userId); }}
+                                filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                              />
+                            )
+                          },
+                          {
+                            title: 'Actions',
+                            render: (_: unknown, row) => (
+                              <Button size="small" danger onClick={() => void handleDeleteTeam(row.id)}>Delete</Button>
+                            )
+                          }
+                        ]}
+                      />
+                    </Space>
+                  </Card>
+                )}
+
+                {canManageTeams && (
+                  <Card style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }} title="Pending invites">
+                    <Table<Invite>
+                      dataSource={invites.filter((i) => i.status === 'PENDING')}
+                      rowKey="id"
+                      pagination={false}
+                      locale={{ emptyText: 'No pending invites' }}
+                      columns={[
+                        { title: 'Email', dataIndex: 'email' },
+                        { title: 'Created', render: (_: unknown, row) => new Date(row.createdAt).toLocaleString() },
+                        {
+                          title: 'Actions',
+                          render: (_: unknown, row) => (
+                            <Button size="small" danger onClick={() => void handleRevokeInvite(row.id)}>Revoke</Button>
+                          )
+                        }
+                      ]}
+                    />
+                  </Card>
+                )}
+              </Space>
             </Col>
           )}
         </Row>
@@ -3189,58 +3197,50 @@ export default function ProjectPage() {
       </Modal>
 
       <Modal
-        title="Create user access"
-        open={memberModalOpen}
-        onCancel={() => setMemberModalOpen(false)}
-        confirmLoading={memberSaving}
-        onOk={() => void handleCreateUserAccess()}
-        okText="Create access"
+        title="Invite a user"
+        open={inviteModalOpen}
+        onCancel={() => setInviteModalOpen(false)}
+        confirmLoading={inviteSaving}
+        onOk={() => void handleCreateInvite()}
+        okText="Send invite"
       >
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <div>
             <Text type="secondary">Email</Text>
             <Input
-              value={memberForm.email}
-              onChange={(event) => setMemberForm((current) => ({ ...current, email: event.target.value }))}
+              value={inviteForm.email}
+              onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))}
               placeholder="teammate@company.com"
               style={{ marginTop: 8 }}
             />
             <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-              If this email does not exist yet, a new login account will be created with this password.
+              The invitee receives a link to set a password. They join with the team&apos;s access.
             </Text>
           </div>
           <div>
-            <Text type="secondary">Password</Text>
-            <Input.Password
-              value={memberForm.password}
-              onChange={(event) => setMemberForm((current) => ({ ...current, password: event.target.value }))}
-              placeholder={memberUserExists === true ? 'Not required for existing users' : 'Create a login password'}
-              disabled={memberUserExists === true}
-              style={{ marginTop: 8 }}
-            />
-            <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-              {memberLookupLoading
-                ? 'Checking whether this user already exists...'
-                : memberUserExists === true
-                  ? 'This user already exists. The password will be ignored.'
-                  : memberUserExists === false
-                    ? 'This password will be used to create a new login account.'
-                    : 'If the user already exists, the password will be ignored.'}
-            </Text>
-          </div>
-          <div>
-            <Text type="secondary">Role</Text>
+            <Text type="secondary">Team (membership)</Text>
             <Select
-              value={memberForm.role}
-              onChange={(value) => setMemberForm((current) => ({ ...current, role: value as ProjectRole }))}
+              allowClear
+              value={inviteForm.teamId}
+              onChange={(value) => setInviteForm((current) => ({ ...current, teamId: value as string | undefined }))}
               style={{ width: '100%', marginTop: 8 }}
-              options={[
-                { label: 'Owner — full project control', value: 'OWNER' },
-                { label: 'Editor — can edit and run checks', value: 'EDITOR' },
-                { label: 'Viewer — read-only access', value: 'VIEWER' }
-              ]}
+              placeholder="Add to a team on this project"
+              options={teams.map((t) => ({ label: t.name, value: t.id }))}
             />
           </div>
+          {isSuperadmin && (
+            <div>
+              <Text type="secondary">Capability group (superadmin only)</Text>
+              <Select
+                allowClear
+                value={inviteForm.groupId}
+                onChange={(value) => setInviteForm((current) => ({ ...current, groupId: value as string | undefined }))}
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="Grant a global capability group"
+                options={groups.map((g) => ({ label: g.name, value: g.id }))}
+              />
+            </div>
+          )}
         </Space>
       </Modal>
       <AppFooter />
