@@ -69,12 +69,6 @@ export async function requireScope(projectId: string, userId: string, scope: Sco
   return access;
 }
 
-const ROLE_RANK: Record<ProjectRole, number> = {
-  OWNER: 3,
-  EDITOR: 2,
-  VIEWER: 1
-};
-
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -96,10 +90,6 @@ export function getAuthUser(request: FastifyRequest): AuthUser {
     throw new Error('Unauthorized');
   }
   return { userId: payload.userId, email: payload.email };
-}
-
-export function hasProjectRole(memberRole: ProjectRole, allowedRoles: ProjectRole[]) {
-  return allowedRoles.includes(memberRole);
 }
 
 export async function getProjectAccess(projectId: string, userId: string): Promise<ProjectAccess | null> {
@@ -126,16 +116,11 @@ export async function getProjectAccess(projectId: string, userId: string): Promi
 
 export async function getAccessibleProjectIds(userId: string) {
   const memberships = await prisma.projectMember.findMany({
-    where: {
-      userId,
-      status: 'ACTIVE'
-    },
-    select: {
-      projectId: true
-    }
+    where: { userId, status: 'ACTIVE' }
   });
-
-  return memberships.map((membership) => membership.projectId);
+  return memberships
+    .filter((member) => [...resolveScopes(member)].some((scope) => scope.endsWith(':read')))
+    .map((member) => member.projectId);
 }
 
 export async function canCreateProject(userId: string, email: string) {
@@ -159,38 +144,10 @@ export async function canCreateProject(userId: string, email: string) {
   return Boolean(editableMembership);
 }
 
-export async function requireProjectRole(projectId: string, userId: string, allowedRoles: ProjectRole[]) {
-  const access = await getProjectAccess(projectId, userId);
-  if (!access) {
-    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
-    if (!project) {
-      const error = new Error('Project not found');
-      (error as ProjectAccessError).statusCode = 404;
-      throw error;
-    }
-
-    const error = new Error('Forbidden');
-    (error as ProjectAccessError).statusCode = 403;
-    throw error;
-  }
-
-  if (!hasProjectRole(access.member.role, allowedRoles)) {
-    const error = new Error('Forbidden');
-    (error as ProjectAccessError).statusCode = 403;
-    throw error;
-  }
-
-  return access;
-}
-
 export function getProjectAccessStatusCode(error: unknown) {
   return typeof error === 'object' && error !== null && 'statusCode' in error
     ? Number((error as ProjectAccessError).statusCode ?? 500)
     : 500;
-}
-
-export function roleAtLeast(role: ProjectRole, requiredRole: ProjectRole) {
-  return ROLE_RANK[role] >= ROLE_RANK[requiredRole];
 }
 
 export function maskSecretValue(value: string) {
