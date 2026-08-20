@@ -20,7 +20,7 @@ export async function memberOf(userId: string, projectId: string): Promise<boole
   return Boolean(hit);
 }
 
-async function resolveUserScopes(userId: string): Promise<{ membershipScopes: Set<Scope>; globalScopes: Set<Scope> }> {
+export async function resolveUserScopes(userId: string): Promise<{ membershipScopes: Set<Scope>; globalScopes: Set<Scope> }> {
   const rows = await prisma.userGroup.findMany({
     where: { userId },
     select: { group: { select: { isGlobal: true, scopes: { select: { scope: true } } } } }
@@ -44,6 +44,39 @@ export async function resolveScopes(userId: string, projectId: string): Promise<
 
 export async function can(projectId: string, userId: string, scope: Scope): Promise<boolean> {
   return (await resolveScopes(userId, projectId)).has(scope);
+}
+
+function forbidden(): ProjectAccessError {
+  const error = new Error('Forbidden') as ProjectAccessError;
+  error.statusCode = 403;
+  return error;
+}
+
+export async function isSuperadmin(userId: string): Promise<boolean> {
+  const count = await prisma.userGroup.count({
+    where: { userId, group: { isGlobal: true } }
+  });
+  return count > 0;
+}
+
+export async function requireSuperadmin(userId: string): Promise<void> {
+  if (!(await isSuperadmin(userId))) throw forbidden();
+}
+
+export async function countSuperadmins(): Promise<number> {
+  const rows = await prisma.userGroup.findMany({
+    where: { group: { isGlobal: true } },
+    select: { userId: true },
+    distinct: ['userId']
+  });
+  return rows.length;
+}
+
+export async function requireTeamsManage(userId: string): Promise<void> {
+  const { membershipScopes, globalScopes } = await resolveUserScopes(userId);
+  if (!membershipScopes.has('teams_manage') && !globalScopes.has('teams_manage')) {
+    throw forbidden();
+  }
 }
 
 // Returns the effective scope set on success (callers use it for secret masking); throws 404/403 otherwise.
