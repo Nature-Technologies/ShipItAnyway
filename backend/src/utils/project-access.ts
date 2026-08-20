@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import { Scope, type ProjectMemberStatus, type ProjectRole } from '@prisma/client';
+import { Scope } from '@prisma/client';
 import prisma from '../prisma';
 import { FALLBACK_ADMIN_EMAIL } from '../constants/admin';
 
@@ -156,33 +156,4 @@ export function redactEnvironmentVariables(variables: Record<string, string>, vi
   return Object.fromEntries(
     Object.entries(variables).map(([key, value]) => [key, maskSecretValue(value)])
   );
-}
-
-export async function upsertProjectMember(data: {
-  projectId: string;
-  email: string;
-  userId?: string | null;
-  role: ProjectRole;
-  status?: ProjectMemberStatus;
-}) {
-  return prisma.projectMember.upsert({
-    where: {
-      projectId_email: {
-        projectId: data.projectId,
-        email: data.email
-      }
-    },
-    update: {
-      userId: data.userId ?? null,
-      role: data.role,
-      status: data.status ?? 'ACTIVE'
-    },
-    create: {
-      projectId: data.projectId,
-      email: data.email,
-      userId: data.userId ?? null,
-      role: data.role,
-      status: data.status ?? 'ACTIVE'
-    }
-  });
 }

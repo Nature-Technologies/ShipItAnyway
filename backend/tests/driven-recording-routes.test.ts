@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import prisma from '../src/prisma';
+import { joinProject } from './helpers/rbac';
 import { recordingRoutes } from '../src/routes/recordings';
 
 async function buildApp(userId: string, email: string) {
@@ -21,9 +22,7 @@ async function createProjectAccess() {
   const project = await prisma.project.create({
     data: { name: `Driven ${suffix}` }
   });
-  await prisma.projectMember.create({
-    data: { projectId: project.id, userId: user.id, email: user.email, role: 'OWNER', status: 'ACTIVE' }
-  });
+  await joinProject(project.id, user.id);
   return { user, project };
 }
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import Fastify from 'fastify';
 import prisma from '../src/prisma';
+import { joinProject } from './helpers/rbac';
 import { startTestWorker, stopTestWorker } from '../src/queue/worker';
 import { testQueue } from '../src/queue/queue';
 import redis from '../src/redis';
@@ -39,15 +40,7 @@ test('failed runs keep trace metadata and downloadable trace.zip', async () => {
     data: { name: `Trace Regression ${Date.now()}` }
   });
 
-  await prisma.projectMember.create({
-    data: {
-      projectId: project.id,
-      userId: user.id,
-      email: user.email,
-      role: 'OWNER',
-      status: 'ACTIVE'
-    }
-  });
+  await joinProject(project.id, user.id);
 
   const testRecord = await prisma.test.create({
     data: {

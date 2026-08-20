@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
-import type { ProjectRole } from '@prisma/client';
 import prisma from '../src/prisma';
 import redis from '../src/redis';
 import { testQueue } from '../src/queue/queue';
@@ -27,7 +26,9 @@ async function makeUser(tag: string) {
   });
 }
 
-async function joinProject(projectId: string, userId: string, groupName: ProjectRole) {
+type Tier = 'OWNER' | 'EDITOR' | 'VIEWER';
+
+async function joinProject(projectId: string, userId: string, groupName: Tier) {
   const g = await prisma.group.findUniqueOrThrow({ where: { name: groupName } });
   await prisma.userGroup.upsert({
     where: { userId_groupId: { userId, groupId: g.id } }, update: {}, create: { userId, groupId: g.id }
@@ -39,8 +40,8 @@ async function joinProject(projectId: string, userId: string, groupName: Project
 
 async function seedTiers() {
   const project = await prisma.project.create({ data: { name: `rbac-${Date.now()}` } });
-  const users: Record<ProjectRole | 'OUTSIDER', { id: string; email: string }> = {} as never;
-  for (const role of ['OWNER', 'EDITOR', 'VIEWER'] as ProjectRole[]) {
+  const users: Record<Tier | 'OUTSIDER', { id: string; email: string }> = {} as never;
+  for (const role of ['OWNER', 'EDITOR', 'VIEWER'] as Tier[]) {
     const u = await makeUser(role.toLowerCase());
     await joinProject(project.id, u.id, role);
     users[role] = u;

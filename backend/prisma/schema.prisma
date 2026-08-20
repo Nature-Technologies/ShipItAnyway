@@ -173,7 +173,6 @@ model ProjectMember {
   projectId String
   userId    String?
   email     String
-  role      ProjectRole
   status    ProjectMemberStatus @default(ACTIVE)
   invitedGroupId String?
   invitedTeamId  String?
@@ -264,12 +263,6 @@ enum BatchStatus {
   RUNNING
   PASSED
   FAILED
-}
-
-enum ProjectRole {
-  OWNER
-  EDITOR
-  VIEWER
 }
 
 enum ProjectMemberStatus {

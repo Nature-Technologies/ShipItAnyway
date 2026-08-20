@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import prisma from '../src/prisma';
+import { joinProject } from './helpers/rbac';
 import redis from '../src/redis';
 import { testQueue } from '../src/queue/queue';
 import { scheduleRoutes } from '../src/routes/schedules';
@@ -26,15 +27,7 @@ async function createProjectAccess() {
   const project = await prisma.project.create({
     data: { name: `Schedule run now ${suffix}` }
   });
-  await prisma.projectMember.create({
-    data: {
-      projectId: project.id,
-      userId: user.id,
-      email: user.email,
-      role: 'OWNER',
-      status: 'ACTIVE'
-    }
-  });
+  await joinProject(project.id, user.id);
   return { user, project };
 }
 
