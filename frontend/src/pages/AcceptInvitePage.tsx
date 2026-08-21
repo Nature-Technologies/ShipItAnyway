@@ -1,41 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Form, Input, Spin, Typography } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import appLogo from '../assets/shipitanyway_logo.png';
 import AppFooter from '../components/AppFooter';
 import { acceptInvite, validateInvite } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import { APP_DESCRIPTION, APP_NAME } from '../utils/appMeta';
 
 export default function AcceptInvitePage() {
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
   const navigate = useNavigate();
-  const [status, setStatus] = useState<'loading' | 'valid' | 'invalid'>('loading');
-  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    if (!token) { setStatus('invalid'); return; }
-    validateInvite(token)
-      .then((res) => { if (active) { setEmail(res.email); setStatus('valid'); } })
-      .catch(() => { if (active) setStatus('invalid'); });
-    return () => { active = false; };
-  }, [token]);
+  const inviteQuery = useQuery({
+    queryKey: qk.invite(token),
+    queryFn: () => validateInvite(token),
+    enabled: Boolean(token),
+    retry: false
+  });
+  const invalid = !token || inviteQuery.isError;
+  const email = inviteQuery.data?.email ?? '';
 
-  const handleSubmit = async (values: { password: string }) => {
-    setSubmitting(true);
-    setError('');
-    try {
-      await acceptInvite(token, values.password);
+  const mutation = useMutation({
+    mutationFn: (password: string) => acceptInvite(token, password),
+    onSuccess: () => {
       navigate('/login', { state: { notice: 'Invite accepted — please sign in.' } });
-    } catch {
+    },
+    onError: () => {
       setError('Could not accept this invite. It may have expired or already been used.');
-    } finally {
-      setSubmitting(false);
     }
+  });
+
+  const handleSubmit = (values: { password: string }) => {
+    setError('');
+    mutation.mutate(values.password);
   };
 
   return (
@@ -59,11 +60,11 @@ export default function AcceptInvitePage() {
             </Typography.Text>
           </div>
 
-          {status === 'loading' && (
+          {inviteQuery.isLoading && (
             <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
           )}
 
-          {status === 'invalid' && (
+          {invalid && (
             <Alert
               message="Invalid or expired invite"
               description="This invitation link is no longer valid. Ask an administrator to send a new one."
@@ -72,7 +73,7 @@ export default function AcceptInvitePage() {
             />
           )}
 
-          {status === 'valid' && (
+          {inviteQuery.isSuccess && (
             <>
               {error && <Alert message={error} type="error" style={{ marginBottom: 16 }} showIcon />}
               <Form layout="vertical" onFinish={handleSubmit}>
@@ -86,7 +87,7 @@ export default function AcceptInvitePage() {
                 >
                   <Input.Password prefix={<LockOutlined />} placeholder="New password" size="large" />
                 </Form.Item>
-                <Button type="primary" htmlType="submit" size="large" block loading={submitting}>
+                <Button type="primary" htmlType="submit" size="large" block loading={mutation.isPending}>
                   Accept invite
                 </Button>
               </Form>

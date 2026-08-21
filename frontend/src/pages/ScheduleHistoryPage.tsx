@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { AppstoreOutlined, FileTextOutlined, HistoryOutlined } from '@ant-design/icons';
 import { Breadcrumb, Button, Card, Col, Layout, Row, Space, Table, Tag, Typography } from 'antd';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getScheduleHistory } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import RunStatusBadge from '../components/RunStatusBadge';
 import UserMenu from '../components/UserMenu';
-import type { ScheduleHistoryResponse } from '../types';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -19,12 +19,15 @@ function formatTime(value?: string | null) {
 export default function ScheduleHistoryPage() {
   const { scheduleId } = useParams<{ scheduleId: string }>();
   const navigate = useNavigate();
-  const [data, setData] = useState<ScheduleHistoryResponse | null>(null);
-
-  useEffect(() => {
-    if (!scheduleId) return;
-    void getScheduleHistory(scheduleId).then(setData);
-  }, [scheduleId]);
+  const page = 1;
+  const limit = 20;
+  const historyQuery = useQuery({
+    queryKey: qk.scheduleHistory(scheduleId!, page, limit),
+    queryFn: () => getScheduleHistory(scheduleId!, page, limit),
+    enabled: Boolean(scheduleId),
+    placeholderData: (prev) => prev
+  });
+  const data = historyQuery.data ?? null;
 
   return (
     <Layout style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f8fafc 0%, #eff6ff 55%, #ffffff 100%)' }}>

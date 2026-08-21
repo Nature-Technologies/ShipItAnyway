@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Input, Layout, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import AppHeader from '../components/AppHeader';
@@ -12,7 +13,8 @@ import {
   addTeamMember, removeTeamMember, attachTeamToProject, detachTeamFromProject,
   getProjects
 } from '../api/client';
-import type { Group, Team, TeamDetail } from '../types';
+import { qk } from '../lib/queryKeys';
+import type { Group, Team } from '../types';
 
 const { Content } = Layout;
 const { Text } = Typography;
@@ -38,81 +40,116 @@ type UserRow = { id: string; email: string; groupIds: string[] };
 
 export default function AccessConsolePage() {
   const { isSuperadmin } = useAuth();
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [users, setUsers] = useState<UserRow[]>([]);
+  const qc = useQueryClient();
+
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [groupForm, setGroupForm] = useState<{ name: string; scopes: string[] }>({ name: '', scopes: [] });
-  const [groupSaving, setGroupSaving] = useState(false);
 
   // Teams
-  const [teams, setTeams] = useState<Team[]>([]);
   const [teamModalOpen, setTeamModalOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [teamName, setTeamName] = useState('');
-  const [teamSaving, setTeamSaving] = useState(false);
-  const [detail, setDetail] = useState<TeamDetail | null>(null);
-  const [allProjects, setAllProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
-  const loadGroups = async () => {
-    try { setGroups(await getGroups()); } catch (error) { message.error(extractError(error, 'Failed to load groups')); }
-  };
+  const groupsQuery = useQuery({ queryKey: qk.groups, queryFn: getGroups, enabled: isSuperadmin });
+  const groups = groupsQuery.data ?? [];
 
-  const loadUsers = async () => {
-    try {
+  const usersQuery = useQuery({
+    queryKey: qk.users,
+    queryFn: async (): Promise<UserRow[]> => {
       const list = await getUsers();
-      const withGroups = await Promise.all(list.map(async (u) => ({
+      return Promise.all(list.map(async (u) => ({
         id: u.id, email: u.email,
         groupIds: (await getUserGroups(u.id)).map((g) => g.id)
       })));
-      setUsers(withGroups);
-    } catch (error) {
-      message.error(extractError(error, 'Failed to load users'));
-    }
-  };
+    },
+    enabled: isSuperadmin
+  });
+  const users = usersQuery.data ?? [];
 
-  const loadTeams = async () => {
-    try { setTeams(await getTeams()); } catch (error) { message.error(extractError(error, 'Failed to load teams')); }
-  };
+  const teamsQuery = useQuery({ queryKey: qk.teams, queryFn: getTeams });
+  const teams = teamsQuery.data ?? [];
 
-  useEffect(() => {
-    if (isSuperadmin) { void loadGroups(); void loadUsers(); }
-    void loadTeams();
-    void getProjects().then((ps) => setAllProjects(ps.map((p) => ({ id: p.id, name: p.name })))).catch(() => undefined);
-  }, [isSuperadmin]);
+  const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: getProjects });
+  const allProjects = (projectsQuery.data ?? []).map((p) => ({ id: p.id, name: p.name }));
+
+  const teamDetailQuery = useQuery({
+    queryKey: qk.team(selectedTeamId ?? ''),
+    queryFn: () => getTeam(selectedTeamId as string),
+    enabled: Boolean(selectedTeamId)
+  });
+  const detail = teamDetailQuery.data ?? null;
+
+  const saveGroupMutation = useMutation({
+    mutationFn: (vars: { id?: string; name: string; scopes: string[] }) =>
+      vars.id
+        ? updateGroup(vars.id, { name: vars.name, scopes: vars.scopes })
+        : createGroup({ name: vars.name, scopes: vars.scopes }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.groups })
+  });
+  const deleteGroupMutation = useMutation({
+    mutationFn: deleteGroup,
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.groups })
+  });
+  const setUserGroupsMutation = useMutation({
+    mutationFn: ({ userId, groupIds }: { userId: string; groupIds: string[] }) => setUserGroups(userId, groupIds),
+    // onSettled (not onSuccess): refresh even on failure so the Select resets to server truth, matching the old finally.
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.users })
+  });
+  const saveTeamMutation = useMutation({
+    mutationFn: (vars: { id?: string; name: string }) =>
+      vars.id ? updateTeam(vars.id, { name: vars.name }) : createTeam({ name: vars.name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.teams })
+  });
+  const deleteTeamMutation = useMutation({
+    mutationFn: deleteTeam,
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.teams })
+  });
+
+  const invalidateTeamDetail = () => {
+    void qc.invalidateQueries({ queryKey: qk.teams });
+    if (selectedTeamId) void qc.invalidateQueries({ queryKey: qk.team(selectedTeamId) });
+  };
+  const addMemberMutation = useMutation({
+    mutationFn: (userId: string) => addTeamMember(selectedTeamId as string, userId),
+    onSuccess: invalidateTeamDetail
+  });
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => removeTeamMember(selectedTeamId as string, userId),
+    onSuccess: invalidateTeamDetail
+  });
+  const attachMutation = useMutation({
+    mutationFn: (projectId: string) => attachTeamToProject(selectedTeamId as string, projectId),
+    onSuccess: invalidateTeamDetail
+  });
+  const detachMutation = useMutation({
+    mutationFn: (projectId: string) => detachTeamFromProject(selectedTeamId as string, projectId),
+    onSuccess: invalidateTeamDetail
+  });
 
   const openNewGroup = () => { setEditingGroup(null); setGroupForm({ name: '', scopes: [] }); setGroupModalOpen(true); };
   const openEditGroup = (group: Group) => { setEditingGroup(group); setGroupForm({ name: group.name, scopes: group.scopes }); setGroupModalOpen(true); };
 
   const handleSaveGroup = async () => {
     if (!groupForm.name.trim()) { message.error('Name is required'); return; }
-    setGroupSaving(true);
     try {
-      if (editingGroup) {
-        await updateGroup(editingGroup.id, { name: groupForm.name.trim(), scopes: groupForm.scopes });
-        message.success('Group updated');
-      } else {
-        await createGroup({ name: groupForm.name.trim(), scopes: groupForm.scopes });
-        message.success('Group created');
-      }
+      await saveGroupMutation.mutateAsync({ id: editingGroup?.id, name: groupForm.name.trim(), scopes: groupForm.scopes });
+      message.success(editingGroup ? 'Group updated' : 'Group created');
       setGroupModalOpen(false);
-      await loadGroups();
     } catch (error) {
       message.error(extractError(error, 'Failed to save group'));
-    } finally {
-      setGroupSaving(false);
     }
   };
 
   const handleDeleteGroup = async (id: string) => {
-    try { await deleteGroup(id); message.success('Group deleted'); await loadGroups(); }
+    try { await deleteGroupMutation.mutateAsync(id); message.success('Group deleted'); }
     catch (error) { message.error(extractError(error, 'Failed to delete group')); }
   };
 
   const handleSetUserGroups = async (userId: string, groupIds: string[]) => {
-    try { await setUserGroups(userId, groupIds); message.success('Groups updated'); }
+    try { await setUserGroupsMutation.mutateAsync({ userId, groupIds }); message.success('Groups updated'); }
     catch (error) { message.error(extractError(error, 'Failed to update groups')); }
-    finally { await loadUsers(); }
   };
 
   const openNewTeam = () => { setEditingTeam(null); setTeamName(''); setTeamModalOpen(true); };
@@ -120,47 +157,34 @@ export default function AccessConsolePage() {
 
   const handleSaveTeam = async () => {
     if (!teamName.trim()) { message.error('Name is required'); return; }
-    setTeamSaving(true);
     try {
-      if (editingTeam) { await updateTeam(editingTeam.id, { name: teamName.trim() }); message.success('Team renamed'); }
-      else { await createTeam({ name: teamName.trim() }); message.success('Team created'); }
+      await saveTeamMutation.mutateAsync({ id: editingTeam?.id, name: teamName.trim() });
+      message.success(editingTeam ? 'Team renamed' : 'Team created');
       setTeamModalOpen(false);
-      await loadTeams();
     } catch (error) {
       message.error(extractError(error, 'Failed to save team'));
-    } finally {
-      setTeamSaving(false);
     }
   };
 
   const handleDeleteTeam = async (id: string) => {
-    try { await deleteTeam(id); message.success('Team deleted'); await loadTeams(); }
+    try { await deleteTeamMutation.mutateAsync(id); message.success('Team deleted'); }
     catch (error) { message.error(extractError(error, 'Failed to delete team')); }
   };
 
-  const openDetail = async (id: string) => {
-    try { setDetail(await getTeam(id)); } catch (error) { message.error(extractError(error, 'Failed to load team')); }
-  };
-  const refreshDetail = async () => { if (detail) setDetail(await getTeam(detail.id)); };
-
   const handleAddMember = async (userId: string) => {
-    if (!detail) return;
-    try { await addTeamMember(detail.id, userId); await refreshDetail(); await loadTeams(); }
+    try { await addMemberMutation.mutateAsync(userId); }
     catch (error) { message.error(extractError(error, 'Failed to add member')); }
   };
   const handleRemoveMember = async (userId: string) => {
-    if (!detail) return;
-    try { await removeTeamMember(detail.id, userId); await refreshDetail(); await loadTeams(); }
+    try { await removeMemberMutation.mutateAsync(userId); }
     catch (error) { message.error(extractError(error, 'Failed to remove member')); }
   };
   const handleAttach = async (projectId: string) => {
-    if (!detail) return;
-    try { await attachTeamToProject(detail.id, projectId); await refreshDetail(); await loadTeams(); }
+    try { await attachMutation.mutateAsync(projectId); }
     catch (error) { message.error(extractError(error, 'Failed to attach project')); }
   };
   const handleDetach = async (projectId: string) => {
-    if (!detail) return;
-    try { await detachTeamFromProject(detail.id, projectId); await refreshDetail(); await loadTeams(); }
+    try { await detachMutation.mutateAsync(projectId); }
     catch (error) { message.error(extractError(error, 'Failed to detach project')); }
   };
 
@@ -231,7 +255,7 @@ export default function AccessConsolePage() {
             { title: 'Projects', dataIndex: 'projectCount' },
             { title: 'Actions', render: (_: unknown, row) => (
               <Space>
-                <Button size="small" onClick={() => void openDetail(row.id)}>Manage</Button>
+                <Button size="small" onClick={() => setSelectedTeamId(row.id)}>Manage</Button>
                 <Button size="small" onClick={() => openEditTeam(row)}>Rename</Button>
                 <Button size="small" danger onClick={() => void handleDeleteTeam(row.id)}>Delete</Button>
               </Space>
@@ -263,7 +287,7 @@ export default function AccessConsolePage() {
         title={editingGroup ? 'Edit group' : 'New group'}
         open={groupModalOpen}
         onCancel={() => setGroupModalOpen(false)}
-        confirmLoading={groupSaving}
+        confirmLoading={saveGroupMutation.isPending}
         onOk={() => void handleSaveGroup()}
         okText={editingGroup ? 'Save' : 'Create'}
       >
@@ -288,7 +312,7 @@ export default function AccessConsolePage() {
         title={editingTeam ? 'Rename team' : 'New team'}
         open={teamModalOpen}
         onCancel={() => setTeamModalOpen(false)}
-        confirmLoading={teamSaving}
+        confirmLoading={saveTeamMutation.isPending}
         onOk={() => void handleSaveTeam()}
         okText={editingTeam ? 'Save' : 'Create'}
       >
@@ -298,9 +322,9 @@ export default function AccessConsolePage() {
 
       <Modal
         title={detail ? `Manage team — ${detail.name}` : 'Manage team'}
-        open={Boolean(detail)}
-        onCancel={() => setDetail(null)}
-        footer={<Button type="primary" onClick={() => setDetail(null)}>Close</Button>}
+        open={Boolean(selectedTeamId)}
+        onCancel={() => setSelectedTeamId(null)}
+        footer={<Button type="primary" onClick={() => setSelectedTeamId(null)}>Close</Button>}
         width={640}
       >
         {detail && (

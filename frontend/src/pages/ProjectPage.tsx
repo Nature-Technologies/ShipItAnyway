@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Button,
@@ -77,6 +78,7 @@ import {
   getGroups,
   getUsers
 } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import RunStatusBadge from '../components/RunStatusBadge';
@@ -490,7 +492,6 @@ export default function ProjectPage() {
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ProjectTabKey>(() => resolveTabFromPathname(location.pathname));
   const [importing, setImporting] = useState(false);
   const [runCheckModalOpen, setRunCheckModalOpen] = useState(false);
@@ -559,41 +560,82 @@ export default function ProjectPage() {
   const canManageSchedules = gates.canEditSchedules;
   const canManageEnvironments = gates.canEditEnvironments;
 
-  useEffect(() => {
-    if (activeTab === 'members' && canManageMembers) void loadMembersTab();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, canManageMembers, projectId]);
+  const qc = useQueryClient();
 
   function settledValue<T>(result: PromiseSettledResult<T>, fallback: T): T {
     return result.status === 'fulfilled' ? result.value : fallback;
   }
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const projectData = await getProject(projectId!);
-      const [suiteDataResult, environmentDataResult, scheduleDataResult, channelDataResult, memberDataResult] = await Promise.allSettled([
-        getSuites(projectId!),
-        getEnvironments(projectId!),
-        getSchedules(projectId!),
-        getChannels(projectId!),
-        deriveProjectGates(projectData.currentUserScopes ?? []).canReadMembers ? getProjectMembers(projectId!) : Promise.resolve([])
-      ]);
-      setProject(projectData);
-      setProjectName(projectData.name);
-      setSuites(settledValue(suiteDataResult, []));
-      setEnvironments(settledValue(environmentDataResult, []));
-      setSchedules(settledValue(scheduleDataResult, []));
-      setChannels(settledValue(channelDataResult, []));
-      setProjectMembers(settledValue(memberDataResult, []));
-    } finally {
-      setLoading(false);
-    }
+  const fetchWorkspace = async () => {
+    const projectData = await getProject(projectId!);
+    const [suiteDataResult, environmentDataResult, scheduleDataResult, channelDataResult, memberDataResult] = await Promise.allSettled([
+      getSuites(projectId!),
+      getEnvironments(projectId!),
+      getSchedules(projectId!),
+      getChannels(projectId!),
+      deriveProjectGates(projectData.currentUserScopes ?? []).canReadMembers ? getProjectMembers(projectId!) : Promise.resolve([])
+    ]);
+    return {
+      project: projectData,
+      suites: settledValue(suiteDataResult, []),
+      environments: settledValue(environmentDataResult, []),
+      schedules: settledValue(scheduleDataResult, []),
+      channels: settledValue(channelDataResult, []),
+      members: settledValue(memberDataResult, [])
+    };
   };
 
+  const workspaceQuery = useQuery({
+    queryKey: qk.project(projectId!),
+    queryFn: fetchWorkspace,
+    enabled: Boolean(projectId)
+  });
+  const loading = workspaceQuery.isLoading;
+
   useEffect(() => {
-    void load();
-  }, [projectId]);
+    const d = workspaceQuery.data;
+    if (!d) return;
+    setProject(d.project);
+    setProjectName(d.project.name);
+    setSuites(d.suites);
+    setEnvironments(d.environments);
+    setSchedules(d.schedules);
+    setChannels(d.channels);
+    setProjectMembers(d.members);
+  }, [workspaceQuery.data]);
+
+  const fetchMembersData = async () => {
+    const [membersR, teamsR, invitesR, groupsR, usersR] = await Promise.allSettled([
+      getProjectMembers(projectId!),
+      getTeams(),
+      canManageTeams ? getInvites() : Promise.resolve([] as Invite[]),
+      isSuperadmin ? getGroups() : Promise.resolve([] as Group[]),
+      canManageTeams ? getUsers() : Promise.resolve([] as Array<{ id: string; email: string }>)
+    ]);
+    return {
+      members: settledValue(membersR, []),
+      teams: settledValue(teamsR, []),
+      invites: settledValue(invitesR, []),
+      groups: settledValue(groupsR, []),
+      users: settledValue(usersR, [])
+    };
+  };
+
+  const membersQuery = useQuery({
+    queryKey: [...qk.project(projectId!), 'members-tab'],
+    queryFn: fetchMembersData,
+    enabled: Boolean(projectId) && activeTab === 'members' && canManageMembers
+  });
+
+  useEffect(() => {
+    const d = membersQuery.data;
+    if (!d) return;
+    setProjectMembers(d.members);
+    setTeams(d.teams);
+    setInvites(d.invites);
+    setGroups(d.groups);
+    setUsers(d.users);
+  }, [membersQuery.data]);
 
   useEffect(() => {
     settingsHydratedRef.current = false;
@@ -719,7 +761,7 @@ export default function ProjectPage() {
         message.success('Environment created');
       }
       setEnvironmentModalOpen(false);
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to save environment');
     } finally {
@@ -738,7 +780,7 @@ export default function ProjectPage() {
         variables: environment.variables
       });
       message.success('Environment duplicated');
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to duplicate environment');
     }
@@ -866,7 +908,7 @@ export default function ProjectPage() {
       }
 
       setChannelModalOpen(false);
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to save channel');
     } finally {
@@ -934,7 +976,7 @@ export default function ProjectPage() {
     try {
       await testChannel(channel.id);
       message.success('Test notification sent');
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to send test notification');
     }
@@ -947,7 +989,7 @@ export default function ProjectPage() {
     }
     await deleteChannel(channelId);
     message.success('Channel deleted');
-    await load();
+    await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
   };
 
   const toggleChannelEnabled = async (channel: NotificationChannel) => {
@@ -958,7 +1000,7 @@ export default function ProjectPage() {
     try {
       await updateChannel(channel.id, { enabled: !channel.enabled });
       message.success(channel.enabled ? 'Alert paused' : 'Alert activated');
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to update alert status');
     }
@@ -1015,7 +1057,7 @@ export default function ProjectPage() {
         message.success('Schedule created');
       }
       setScheduleModalOpen(false);
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to save schedule');
     } finally {
@@ -1052,7 +1094,7 @@ export default function ProjectPage() {
     try {
       await updateSchedule(schedule.id, { enabled: !schedule.enabled });
       message.success(schedule.enabled ? 'Schedule paused' : 'Schedule resumed');
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } catch {
       message.error('Failed to update schedule');
     }
@@ -1065,7 +1107,7 @@ export default function ProjectPage() {
     }
     await deleteSchedule(scheduleId);
     message.success('Schedule deleted');
-    await load();
+    await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
   };
 
   const duplicateCheckName = (name: string) => `${name} Copy`;
@@ -1148,7 +1190,7 @@ export default function ProjectPage() {
   const handleDeleteCheck = async (testId: string) => {
     await deleteTest(testId);
     message.success('Check deleted');
-    await load();
+    await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
   };
 
   const handleDuplicateCheck = async (check: ProjectCheck) => {
@@ -1190,7 +1232,7 @@ export default function ProjectPage() {
       const code = await file.text();
       const { test, parsedSteps } = await importTestSpec(projectId!, code);
       message.success(`Imported "${test.name}" — ${parsedSteps} steps`);
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
       navigate(`/tests/${test.id}/edit`);
     } catch (error) {
       const responseError =
@@ -1272,7 +1314,7 @@ export default function ProjectPage() {
       setSavedProjectDescription(nextDescription);
       setProjectDefaultEnvironmentId(nextDefaultEnvironmentId);
       message.success('Project settings saved');
-      await load();
+      await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
     } finally {
       setSavingProject(false);
     }
@@ -1325,22 +1367,6 @@ export default function ProjectPage() {
     return typeof responseError === 'string' ? responseError : fallback;
   };
 
-  const loadMembersTab = async () => {
-    if (!projectId) return;
-    const [membersR, teamsR, invitesR, groupsR, usersR] = await Promise.allSettled([
-      getProjectMembers(projectId),
-      getTeams(),
-      canManageTeams ? getInvites() : Promise.resolve([] as Invite[]),
-      isSuperadmin ? getGroups() : Promise.resolve([] as Group[]),
-      canManageTeams ? getUsers() : Promise.resolve([] as Array<{ id: string; email: string }>)
-    ]);
-    setProjectMembers(settledValue(membersR, []));
-    setTeams(settledValue(teamsR, []));
-    setInvites(settledValue(invitesR, []));
-    setGroups(settledValue(groupsR, []));
-    setUsers(settledValue(usersR, []));
-  };
-
   const openInvite = () => {
     setInviteForm({ email: '' });
     setInviteModalOpen(true);
@@ -1353,7 +1379,7 @@ export default function ProjectPage() {
     try {
       await attachTeamToProject(teamId, project.id);
       message.success('Team attached');
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to attach team'));
     }
@@ -1367,7 +1393,7 @@ export default function ProjectPage() {
       await attachTeamToProject(team.id, project.id);
       message.success('Team created');
       setTeamName('');
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to create team'));
     } finally {
@@ -1379,7 +1405,7 @@ export default function ProjectPage() {
     try {
       await deleteTeam(teamId);
       message.success('Team deleted');
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to delete team'));
     }
@@ -1389,7 +1415,7 @@ export default function ProjectPage() {
     try {
       await addTeamMember(teamId, userId);
       message.success('Member added');
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to add member'));
     }
@@ -1399,7 +1425,7 @@ export default function ProjectPage() {
     try {
       await removeTeamMember(teamId, userId);
       message.success('Member removed');
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to remove member'));
     }
@@ -1416,7 +1442,7 @@ export default function ProjectPage() {
       });
       message.success('Invite sent');
       setInviteModalOpen(false);
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to send invite'));
     } finally {
@@ -1428,7 +1454,7 @@ export default function ProjectPage() {
     try {
       await revokeInvite(id);
       message.success('Invite revoked');
-      await loadMembersTab();
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
     } catch (error) {
       message.error(extractError(error, 'Failed to revoke invite'));
     }
@@ -2333,7 +2359,7 @@ export default function ProjectPage() {
                                           onOk: async () => {
                                             await deleteEnvironment(row.id);
                                             message.success('Environment deleted');
-                                            await load();
+                                            await qc.invalidateQueries({ queryKey: qk.project(projectId!) });
                                           }
                                         });
                                       }

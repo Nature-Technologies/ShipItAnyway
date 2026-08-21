@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Alert,
   Button,
@@ -19,6 +20,7 @@ import {
 } from 'antd';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getRun, runTest, runTestWithEnvironment } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
@@ -173,29 +175,17 @@ function parseFailureSummary(error?: string) {
 export default function RunResultPage() {
   const navigate = useNavigate();
   const { runId } = useParams<{ runId: string }>();
-  const [run, setRun] = useState<TestRun | null>(null);
-  const [rerunning, setRerunning] = useState(false);
 
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | undefined;
-
-    const poll = async () => {
-      const data = await getRun(runId!);
-      setRun(data);
-      if (data.status !== 'PENDING' && data.status !== 'RUNNING' && interval) {
-        clearInterval(interval);
-      }
-    };
-
-    void poll();
-    interval = setInterval(() => {
-      void poll();
-    }, 2000);
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [runId]);
+  const runQuery = useQuery({
+    queryKey: qk.run(runId ?? ''),
+    queryFn: () => getRun(runId!),
+    enabled: Boolean(runId),
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === 'PENDING' || s === 'RUNNING' ? 2000 : false;
+    }
+  });
+  const run = runQuery.data ?? null;
 
   const isActive = run?.status === 'PENDING' || run?.status === 'RUNNING';
   const totalSteps = run?.totalSteps ?? run?.screenshots.length ?? run?.stepResults?.length ?? 0;
@@ -250,18 +240,14 @@ export default function RunResultPage() {
     return parts;
   }, [run]);
 
-  const handleRerun = async () => {
-    if (!run) return;
-    setRerunning(true);
-    try {
-      const nextRun = run.environmentId
-        ? await runTestWithEnvironment(run.testId, run.environmentId, run.dataCaseIndex ?? undefined)
-        : await runTest(run.testId, run.dataCaseIndex ?? undefined);
-      navigate(`/runs/${nextRun.testRunId}`);
-    } finally {
-      setRerunning(false);
-    }
-  };
+  const rerunMutation = useMutation({
+    mutationFn: (target: TestRun) =>
+      target.environmentId
+        ? runTestWithEnvironment(target.testId, target.environmentId, target.dataCaseIndex ?? undefined)
+        : runTest(target.testId, target.dataCaseIndex ?? undefined),
+    onSuccess: (nextRun) => navigate(`/runs/${nextRun.testRunId}`)
+  });
+  const rerunning = rerunMutation.isPending;
 
   const traceSummaryCard = (
     <Card
@@ -402,7 +388,7 @@ export default function RunResultPage() {
                       </Button>
                     )}
                     {run.testId && (
-                      <Button onClick={() => void handleRerun()} loading={rerunning}>
+                      <Button onClick={() => run && rerunMutation.mutate(run)} loading={rerunning}>
                         Rerun
                       </Button>
                     )}

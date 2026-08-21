@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Col, Form, Input, Layout, Modal, Popconfirm, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { Link, useParams } from 'react-router-dom';
 import { createEnvironment, deleteEnvironment, getEnvironments, getProject, updateEnvironment } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
@@ -63,32 +65,39 @@ function validateRows(name: string, rows: VariableRow[]) {
 
 export default function EnvironmentsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [project, setProject] = useState<Project | null>(null);
-  const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const projectQuery = useQuery({
+    queryKey: qk.project(projectId!),
+    queryFn: () => getProject(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const environmentsQuery = useQuery({
+    queryKey: qk.projectEnvironments(projectId!),
+    queryFn: () => getEnvironments(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const project: Project | null = projectQuery.data ?? null;
+  const environments: Environment[] = environmentsQuery.data ?? [];
+  const loading = projectQuery.isLoading || environmentsQuery.isLoading;
   const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [editingEnvironment, setEditingEnvironment] = useState<Environment | null>(null);
   const [name, setName] = useState('');
   const [rows, setRows] = useState<VariableRow[]>([createRow()]);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [projectData, envs] = await Promise.all([
-        getProject(projectId!),
-        getEnvironments(projectId!)
-      ]);
-      setProject(projectData);
-      setEnvironments(envs);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [projectId]);
+  const invalidateEnvironments = () =>
+    qc.invalidateQueries({ queryKey: qk.projectEnvironments(projectId!) });
+  const createMutation = useMutation({
+    mutationFn: (payload: { name: string; variables: Record<string, string> }) =>
+      createEnvironment(projectId!, payload),
+    onSuccess: invalidateEnvironments
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { name: string; variables: Record<string, string> } }) =>
+      updateEnvironment(id, payload),
+    onSuccess: invalidateEnvironments
+  });
+  const deleteMutation = useMutation({ mutationFn: deleteEnvironment, onSuccess: invalidateEnvironments });
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   const openCreate = () => {
     setEditingEnvironment(null);
@@ -120,27 +129,20 @@ export default function EnvironmentsPage() {
       return;
     }
 
-    setSaving(true);
-    try {
-      const payload = { name, variables: toRecord(rows) };
-      if (editingEnvironment) {
-        await updateEnvironment(editingEnvironment.id, payload);
-        message.success('Environment updated');
-      } else {
-        await createEnvironment(projectId!, payload);
-        message.success('Environment created');
-      }
-      setModalOpen(false);
-      await load();
-    } finally {
-      setSaving(false);
+    const payload = { name, variables: toRecord(rows) };
+    if (editingEnvironment) {
+      await updateMutation.mutateAsync({ id: editingEnvironment.id, payload });
+      message.success('Environment updated');
+    } else {
+      await createMutation.mutateAsync(payload);
+      message.success('Environment created');
     }
+    setModalOpen(false);
   };
 
   const handleDelete = async (environmentId: string) => {
-    await deleteEnvironment(environmentId);
+    await deleteMutation.mutateAsync(environmentId);
     message.success('Environment deleted');
-    await load();
   };
 
   return (

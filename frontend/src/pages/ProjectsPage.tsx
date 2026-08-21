@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Card,
@@ -35,6 +36,7 @@ import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
 import { useAuth } from '../context/AuthContext';
 import { createProject, deleteProject, getProjects, updateProject } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import { getProjectDescription } from '../utils/projectSettings';
 import type { ProjectHealth, ProjectSummary } from '../types';
 
@@ -80,29 +82,26 @@ function healthMeta(health: ProjectHealth) {
 
 export default function ProjectsPage() {
   const { canCreateProject } = useAuth();
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: getProjects });
+  const projects = projectsQuery.data ?? [];
+  const loading = projectsQuery.isLoading;
   const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [renaming, setRenaming] = useState(false);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
   const [createForm] = Form.useForm<{ name: string }>();
   const [renameForm] = Form.useForm<{ name: string }>();
   const navigate = useNavigate();
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      setProjects(await getProjects());
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
+  const invalidateProjects = () => qc.invalidateQueries({ queryKey: qk.projects });
+  const createMutation = useMutation({ mutationFn: createProject, onSuccess: invalidateProjects });
+  const renameMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => updateProject(id, { name }),
+    onSuccess: invalidateProjects
+  });
+  const deleteMutation = useMutation({ mutationFn: deleteProject, onSuccess: invalidateProjects });
+  const creating = createMutation.isPending;
+  const renaming = renameMutation.isPending;
 
   const totals = useMemo(() => {
     const checks = projects.reduce((sum, project) => sum + project.checksCount, 0);
@@ -132,16 +131,10 @@ export default function ProjectsPage() {
 
   const handleCreate = async () => {
     const { name } = await createForm.validateFields();
-    setCreating(true);
-    try {
-      await createProject(name);
-      message.success('Project created');
-      setCreateOpen(false);
-      createForm.resetFields();
-      await load();
-    } finally {
-      setCreating(false);
-    }
+    await createMutation.mutateAsync(name);
+    message.success('Project created');
+    setCreateOpen(false);
+    createForm.resetFields();
   };
 
   const openRenameModal = (project: ProjectSummary) => {
@@ -154,23 +147,16 @@ export default function ProjectsPage() {
     const { name } = await renameForm.validateFields();
     if (!selectedProject) return;
 
-    setRenaming(true);
-    try {
-      await updateProject(selectedProject.id, { name });
-      message.success('Project renamed');
-      setRenameOpen(false);
-      setSelectedProject(null);
-      renameForm.resetFields();
-      await load();
-    } finally {
-      setRenaming(false);
-    }
+    await renameMutation.mutateAsync({ id: selectedProject.id, name });
+    message.success('Project renamed');
+    setRenameOpen(false);
+    setSelectedProject(null);
+    renameForm.resetFields();
   };
 
   const handleDelete = async (id: string) => {
-    await deleteProject(id);
+    await deleteMutation.mutateAsync(id);
     message.success('Project deleted');
-    await load();
   };
 
   const createMenu = (project: ProjectSummary): MenuProps => ({

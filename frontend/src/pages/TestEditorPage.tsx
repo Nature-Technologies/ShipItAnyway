@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Breadcrumb, Button, Card, Col, Dropdown, Form, Input, Layout, Modal, Radio, Row, Select, Space, Tag, Typography, message, notification } from 'antd';
 import type { MenuProps } from 'antd';
 import { DownOutlined, DownloadOutlined, PlayCircleOutlined, RobotOutlined, StopOutlined, VideoCameraOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { api, createTest, getDevices, getEnvironments, getProject, getTest, startDrivenRecording, sendDrivenAction, stopDrivenRecording, startRecording, stopRecording, updateTest, validateTestSteps, runTestWithEnvironment, runAllEnabledTestCases } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import StepEditor, { ACTION_OPTIONS } from '../components/StepEditor';
@@ -198,33 +200,24 @@ export default function TestEditorPage() {
   const { projectId, testId } = useParams<{ projectId?: string; testId?: string }>();
   const [form] = Form.useForm();
   const [steps, setSteps] = useState<Step[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [validating, setValidating] = useState(false);
   const [recording, setRecording] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [recordModalOpen, setRecordModalOpen] = useState(false);
   const [recordingProjectId, setRecordingProjectId] = useState<string | undefined>(projectId);
-  const [recordEnvironments, setRecordEnvironments] = useState<Environment[]>([]);
-  const [environmentVariableNames, setEnvironmentVariableNames] = useState<string[]>([]);
   const [selectedRecordingEnvironmentId, setSelectedRecordingEnvironmentId] = useState<string | undefined>(undefined);
   const [recordingUrlHasTemplate, setRecordingUrlHasTemplate] = useState(false);
-  const [recordLoading, setRecordLoading] = useState(false);
   const [drivenSessionId, setDrivenSessionId] = useState<string | null>(null);
   const [drivenView, setDrivenView] = useState<PageView | null>(null);
   const [drivenAction, setDrivenAction] = useState<Step>({ action: 'goto', value: '' });
-  const [drivenLoading, setDrivenLoading] = useState(false);
   const [validationResults, setValidationResults] = useState<StepValidationResult[] | undefined>();
   const [validationFeedback, setValidationFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportKind, setExportKind] = useState<'spec' | 'project'>('spec');
   const [exportMode, setExportMode] = useState<'inline' | 'envvars' | 'raw'>('inline');
   const [exportEnvId, setExportEnvId] = useState<string | undefined>(undefined);
-  const [deviceOptions, setDeviceOptions] = useState<{ label: string; value: string }[]>([]);
   const [validationTracePath, setValidationTracePath] = useState<string | undefined>(undefined);
   const [novncAvailable, setNovncAvailable] = useState(false);
-  const [projectName, setProjectName] = useState('');
   const [currentProjectId, setCurrentProjectId] = useState<string | undefined>(projectId);
-  const [currentUserScopes, setCurrentUserScopes] = useState<string[]>([]);
   const [stepIssues, setStepIssues] = useState<Array<StepIssue | undefined>>([]);
   const [firstInvalidStepIndex, setFirstInvalidStepIndex] = useState<number | null>(null);
   const [initialSnapshotReady, setInitialSnapshotReady] = useState(false);
@@ -234,6 +227,81 @@ export default function TestEditorPage() {
   const stepsRef = useRef<Step[]>([]);
   const initialSnapshotRef = useRef<string>('');
   const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  const testQuery = useQuery({
+    queryKey: qk.test(testId!),
+    queryFn: () => getTest(testId!),
+    enabled: Boolean(testId)
+  });
+  const projectQueryId = projectId ?? testQuery.data?.projectId;
+  const projectQuery = useQuery({
+    queryKey: qk.project(projectQueryId!),
+    queryFn: () => getProject(projectQueryId!),
+    enabled: Boolean(projectQueryId)
+  });
+  const environmentsQuery = useQuery({
+    queryKey: qk.projectEnvironments(recordingProjectId!),
+    queryFn: () => getEnvironments(recordingProjectId!),
+    enabled: Boolean(recordingProjectId)
+  });
+  const devicesQuery = useQuery({ queryKey: qk.devices, queryFn: getDevices });
+
+  const currentUserScopes = projectQuery.data?.currentUserScopes ?? [];
+  const projectName = projectId ? (projectQuery.data?.name ?? '') : '';
+  const recordEnvironments = environmentsQuery.data ?? [];
+  const environmentVariableNames = useMemo(
+    () => collectVariableNames(recordEnvironments),
+    [recordEnvironments]
+  );
+  const deviceOptions = devicesQuery.data ?? [];
+
+  const saveMutation = useMutation({
+    mutationFn: (vars: { values: { name: string; url: string; device?: string | null }; steps: Step[] }) => {
+      const payload = {
+        ...vars.values,
+        device: normalizeDeviceForPayload(vars.values.device),
+        environmentId: selectedRecordingEnvironmentId ?? null,
+        steps: vars.steps,
+        testData: currentApiTestData
+      };
+      return isEdit ? updateTest(testId!, payload) : createTest(projectId!, payload);
+    },
+    onSuccess: (saved) => {
+      void qc.invalidateQueries({ queryKey: qk.test(saved.id) });
+    }
+  });
+  const runMutation = useMutation({
+    mutationFn: (vars: { id: string; environmentId?: string; dataCaseIndex?: number }) =>
+      runTestWithEnvironment(vars.id, vars.environmentId, vars.dataCaseIndex)
+  });
+  const runAllMutation = useMutation({
+    mutationFn: (vars: { id: string; environmentId?: string }) =>
+      runAllEnabledTestCases(vars.id, vars.environmentId)
+  });
+  const validateMutation = useMutation({
+    mutationFn: (vars: { projectId: string; url: string; steps: Step[]; device?: string | null }) =>
+      validateTestSteps(vars.projectId, vars.url, vars.steps, vars.device)
+  });
+  const startRecordingMutation = useMutation({
+    mutationFn: (vars: { url: string; projectId: string; environmentId?: string; device?: string }) =>
+      startRecording(vars.url, vars.projectId, vars.environmentId, vars.device)
+  });
+  const stopRecordingMutation = useMutation({ mutationFn: (id: string) => stopRecording(id) });
+  const startDrivenMutation = useMutation({
+    mutationFn: (vars: { projectId: string; url: string; device?: string }) =>
+      startDrivenRecording(vars.projectId, vars.url, vars.device)
+  });
+  const sendDrivenMutation = useMutation({
+    mutationFn: (vars: { sessionId: string; action: Step }) => sendDrivenAction(vars.sessionId, vars.action)
+  });
+  const stopDrivenMutation = useMutation({ mutationFn: (id: string) => stopDrivenRecording(id) });
+
+  const saving = saveMutation.isPending || runMutation.isPending || runAllMutation.isPending;
+  const validating = validateMutation.isPending;
+  const recordLoading = startRecordingMutation.isPending;
+  const drivenLoading = sendDrivenMutation.isPending;
+
   const [confirmModal, confirmModalContextHolder] = Modal.useModal();
   const isEdit = Boolean(testId);
   const isReadOnly = !deriveProjectGates(currentUserScopes).canEditChecks;
@@ -246,88 +314,45 @@ export default function TestEditorPage() {
   useEffect(() => {
     initialSnapshotRef.current = '';
     setInitialSnapshotReady(false);
+  }, [projectId, testId]);
 
-    if (projectId) {
-      setCurrentProjectId(projectId);
-      void getProject(projectId)
-        .then((project) => {
-          setProjectName(project.name);
-          setCurrentUserScopes(project.currentUserScopes ?? []);
-        })
-        .catch(() => setProjectName(''));
-    }
-
-    if (!testId) {
-      form.setFieldsValue({ name: '', url: '', device: undefined });
-      stepsRef.current = [{ action: 'goto', value: '' }];
-      setUseTestData(false);
-      setEditableTestData([]);
-      setSelectedDataCaseIndex(undefined);
-      setSteps(stepsRef.current);
-      setRecordingProjectId(projectId);
-      setCurrentProjectId(projectId);
-      setSelectedRecordingEnvironmentId(undefined);
-      setValidationTracePath(undefined);
-      setValidationFeedback(null);
-      setStepIssues([]);
-      setFirstInvalidStepIndex(null);
-      setInitialSnapshotReady(true);
-      return;
-    }
-
-    void getTest(testId).then((test) => {
-      form.setFieldsValue({ name: test.name, url: test.url, device: test.device ?? undefined });
-      stepsRef.current = test.steps.length > 0 ? test.steps : [{ action: 'goto', value: '' }];
-      const existingTestData = normalizeTestData(test);
-      setUseTestData(existingTestData.length > 0);
-      setEditableTestData(toEditableTestData(existingTestData));
-      setSelectedDataCaseIndex(readSelectedDataCaseIndex(test.id, existingTestData));
-      setSteps(stepsRef.current);
-      setRecordingProjectId(test.projectId);
-      setCurrentProjectId(test.projectId);
-      setSelectedRecordingEnvironmentId(test.environmentId ?? undefined);
-      void getProject(test.projectId)
-        .then((project) => setCurrentUserScopes(project.currentUserScopes ?? []))
-        .catch(() => setCurrentUserScopes([]));
-      setValidationTracePath(undefined);
-      setValidationFeedback(null);
-      setStepIssues([]);
-      setFirstInvalidStepIndex(null);
-      setInitialSnapshotReady(true);
-    });
+  useEffect(() => {
+    if (testId) return;
+    form.setFieldsValue({ name: '', url: '', device: undefined });
+    stepsRef.current = [{ action: 'goto', value: '' }];
+    setUseTestData(false);
+    setEditableTestData([]);
+    setSelectedDataCaseIndex(undefined);
+    setSteps(stepsRef.current);
+    setRecordingProjectId(projectId);
+    setCurrentProjectId(projectId);
+    setSelectedRecordingEnvironmentId(undefined);
+    setValidationTracePath(undefined);
+    setValidationFeedback(null);
+    setStepIssues([]);
+    setFirstInvalidStepIndex(null);
+    setInitialSnapshotReady(true);
   }, [form, projectId, testId]);
 
   useEffect(() => {
-    if (!recordingProjectId) {
-      setRecordEnvironments([]);
-      setEnvironmentVariableNames([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    void getEnvironments(recordingProjectId)
-      .then((environments) => {
-        if (cancelled) return;
-        setRecordEnvironments(environments);
-        setEnvironmentVariableNames(collectVariableNames(environments));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setRecordEnvironments([]);
-        setEnvironmentVariableNames([]);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [recordingProjectId]);
-
-  useEffect(() => {
-    void getDevices()
-      .then(setDeviceOptions)
-      .catch(() => setDeviceOptions([]));
-  }, []);
+    const test = testQuery.data;
+    if (!test) return;
+    form.setFieldsValue({ name: test.name, url: test.url, device: test.device ?? undefined });
+    stepsRef.current = test.steps.length > 0 ? test.steps : [{ action: 'goto', value: '' }];
+    const existingTestData = normalizeTestData(test);
+    setUseTestData(existingTestData.length > 0);
+    setEditableTestData(toEditableTestData(existingTestData));
+    setSelectedDataCaseIndex(readSelectedDataCaseIndex(test.id, existingTestData));
+    setSteps(stepsRef.current);
+    setRecordingProjectId(test.projectId);
+    setCurrentProjectId(test.projectId);
+    setSelectedRecordingEnvironmentId(test.environmentId ?? undefined);
+    setValidationTracePath(undefined);
+    setValidationFeedback(null);
+    setStepIssues([]);
+    setFirstInvalidStepIndex(null);
+    setInitialSnapshotReady(true);
+  }, [form, testQuery.data]);
 
   useEffect(() => {
     if (!ENABLE_NOVNC || !recording) {
@@ -384,35 +409,6 @@ export default function TestEditorPage() {
     setFirstInvalidStepIndex(null);
   };
 
-  const persistTest = async (
-    values: { name: string; url: string; device?: string | null },
-    stepsToSave: Step[],
-    manageLoading = true
-  ): Promise<Test> => {
-    if (manageLoading) {
-      setSaving(true);
-    }
-    try {
-      const payload = {
-        ...values,
-        device: normalizeDeviceForPayload(values.device),
-        environmentId: selectedRecordingEnvironmentId ?? null,
-        steps: stepsToSave,
-        testData: currentApiTestData
-      };
-
-      if (isEdit) {
-        return await updateTest(testId!, payload);
-      }
-
-      return await createTest(projectId!, payload);
-    } finally {
-      if (manageLoading) {
-        setSaving(false);
-      }
-    }
-  };
-
   useEffect(() => {
     if (firstInvalidStepIndex === null) return;
 
@@ -423,11 +419,6 @@ export default function TestEditorPage() {
 
     return () => window.clearTimeout(timer);
   }, [firstInvalidStepIndex]);
-
-  const saveTest = async (values: { name: string; url: string; device?: string | null }, stepsToSave: Step[]) => {
-    const saved = await persistTest(values, stepsToSave);
-    return saved;
-  };
 
   const validateAndPrepareSteps = async (values: { name: string; url: string; device?: string | null }) => {
     const currentSteps = stepsRef.current;
@@ -448,9 +439,13 @@ export default function TestEditorPage() {
       return null;
     }
 
-    setValidating(true);
     try {
-      const report = await validateTestSteps(currentProjectId ?? projectId ?? '', values.url, currentSteps, values.device);
+      const report = await validateMutation.mutateAsync({
+        projectId: currentProjectId ?? projectId ?? '',
+        url: values.url,
+        steps: currentSteps,
+        device: values.device
+      });
       setValidationResults(report.results);
       setValidationTracePath(report.tracePath);
       if (report.tracePath) {
@@ -520,8 +515,6 @@ export default function TestEditorPage() {
       });
       message.error(validationMessage);
       return null;
-    } finally {
-      setValidating(false);
     }
   };
 
@@ -561,13 +554,16 @@ export default function TestEditorPage() {
     const prepared = await validateAndPrepareSteps(values);
     if (!prepared) return;
 
-    setSaving(true);
     try {
-      const saved = await persistTest(values, prepared.fixedSteps, false);
+      const saved = await saveMutation.mutateAsync({ values, steps: prepared.fixedSteps });
       writeSelectedDataCaseIndex(saved.id, effectiveDataCaseIndex);
       const savedTestData = normalizeTestData(saved);
       const runDataCaseIndex = savedTestData.length > 0 ? effectiveDataCaseIndex : undefined;
-      const run = await runTestWithEnvironment(saved.id, selectedRecordingEnvironmentId, runDataCaseIndex);
+      const run = await runMutation.mutateAsync({
+        id: saved.id,
+        environmentId: selectedRecordingEnvironmentId,
+        dataCaseIndex: runDataCaseIndex
+      });
       navigate(`/runs/${run.testRunId}`);
     } catch (error) {
       const responseError =
@@ -584,8 +580,6 @@ export default function TestEditorPage() {
         text: validationMessage
       });
       message.error(validationMessage);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -619,11 +613,13 @@ export default function TestEditorPage() {
     const prepared = await validateAndPrepareSteps(values);
     if (!prepared) return;
 
-    setSaving(true);
     try {
-      const saved = await persistTest(values, prepared.fixedSteps, false);
+      const saved = await saveMutation.mutateAsync({ values, steps: prepared.fixedSteps });
       writeSelectedDataCaseIndex(saved.id, selectedDataCaseIndex);
-      const result = await runAllEnabledTestCases(saved.id, selectedRecordingEnvironmentId);
+      const result = await runAllMutation.mutateAsync({
+        id: saved.id,
+        environmentId: selectedRecordingEnvironmentId
+      });
       message.success(`${result.queued} test cases queued.`);
       navigate(`/run-batches/${result.batchId}`);
     } catch (error) {
@@ -641,8 +637,6 @@ export default function TestEditorPage() {
         text: validationMessage
       });
       message.error(validationMessage);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -666,12 +660,7 @@ export default function TestEditorPage() {
         const environments =
           recordEnvironments.length > 0
             ? recordEnvironments
-            : await getEnvironments(recordingProjectId);
-
-        if (recordEnvironments.length === 0) {
-          setRecordEnvironments(environments);
-          setEnvironmentVariableNames(collectVariableNames(environments));
-        }
+            : (await environmentsQuery.refetch()).data ?? [];
 
         if (hasTemplate && environments.length === 0) {
           message.warning('Create an environment first before using {{VARIABLE}} in Start URL');
@@ -679,7 +668,6 @@ export default function TestEditorPage() {
         }
 
         if (environments.length > 0) {
-          setRecordEnvironments(environments);
           setRecordingUrlHasTemplate(hasTemplate);
           setSelectedRecordingEnvironmentId(
             hasTemplate ? environments[0]?.id : selectedRecordingEnvironmentId
@@ -689,7 +677,11 @@ export default function TestEditorPage() {
         }
       }
 
-      const data = await startRecording(url, recordingProjectId || currentProjectId || projectId || '', undefined, device);
+      const data = await startRecordingMutation.mutateAsync({
+        url,
+        projectId: recordingProjectId || currentProjectId || projectId || '',
+        device
+      });
       setSessionId(data.sessionId);
       setRecording(true);
       setRecordModalOpen(false);
@@ -709,9 +701,13 @@ export default function TestEditorPage() {
     const device = form.getFieldValue('device') || undefined;
     if (!url) return;
 
-    setRecordLoading(true);
     try {
-      const data = await startRecording(url, recordingProjectId || currentProjectId || projectId || '', selectedRecordingEnvironmentId || undefined, device);
+      const data = await startRecordingMutation.mutateAsync({
+        url,
+        projectId: recordingProjectId || currentProjectId || projectId || '',
+        environmentId: selectedRecordingEnvironmentId || undefined,
+        device
+      });
       setSessionId(data.sessionId);
       setRecording(true);
       setRecordModalOpen(false);
@@ -721,8 +717,6 @@ export default function TestEditorPage() {
         ? (error as { response?: { data?: { error?: string } } }).response?.data?.error
         : null;
       message.error(typeof responseError === 'string' ? responseError : 'Failed to start recording');
-    } finally {
-      setRecordLoading(false);
     }
   };
 
@@ -730,7 +724,7 @@ export default function TestEditorPage() {
     if (!sessionId) return;
 
     try {
-      const data = await stopRecording(sessionId);
+      const data = await stopRecordingMutation.mutateAsync(sessionId);
       replaceOrAppendRecordedSteps(data.steps);
       setRecording(false);
       setSessionId(null);
@@ -746,7 +740,11 @@ export default function TestEditorPage() {
     const device = form.getFieldValue('device') || undefined;
     if (!url) { message.warning('Enter Start URL before recording'); return; }
     try {
-      const data = await startDrivenRecording(currentProjectId ?? projectId ?? '', url, device);
+      const data = await startDrivenMutation.mutateAsync({
+        projectId: currentProjectId ?? projectId ?? '',
+        url,
+        device
+      });
       setDrivenSessionId(data.sessionId);
       setDrivenView(data.view);
     } catch {
@@ -756,22 +754,19 @@ export default function TestEditorPage() {
 
   const handleSendDrivenAction = async () => {
     if (!drivenSessionId) return;
-    setDrivenLoading(true);
     try {
-      const data = await sendDrivenAction(drivenSessionId, drivenAction);
+      const data = await sendDrivenMutation.mutateAsync({ sessionId: drivenSessionId, action: drivenAction });
       setDrivenView(data.view);
       setDrivenAction((prev) => ({ action: prev.action, value: '' }));
     } catch {
       message.error('Failed to send action');
-    } finally {
-      setDrivenLoading(false);
     }
   };
 
   const handleFinishDrivenRecording = async () => {
     if (!drivenSessionId) return;
     try {
-      const data = await stopDrivenRecording(drivenSessionId);
+      const data = await stopDrivenMutation.mutateAsync(drivenSessionId);
       replaceOrAppendRecordedSteps(data.steps);
       setDrivenSessionId(null);
       setDrivenView(null);
@@ -863,7 +858,7 @@ export default function TestEditorPage() {
     }
     const currentSteps = stepsRef.current;
     if (currentSteps.length === 0) {
-    const saved = await saveTest(values, currentSteps);
+    const saved = await saveMutation.mutateAsync({ values, steps: currentSteps });
       form.setFieldsValue({ name: saved.name, url: saved.url, device: saved.device ?? undefined });
       const nextProjectId = saved.projectId ?? currentProjectId ?? projectId;
       setCurrentProjectId(nextProjectId);
@@ -895,7 +890,7 @@ export default function TestEditorPage() {
 
     stepsRef.current = prepared.fixedSteps;
     setSteps(prepared.fixedSteps);
-    const saved = await saveTest(values, prepared.fixedSteps);
+    const saved = await saveMutation.mutateAsync({ values, steps: prepared.fixedSteps });
     form.setFieldsValue({ name: saved.name, url: saved.url, device: saved.device ?? undefined });
     const nextProjectId = saved.projectId ?? currentProjectId ?? projectId;
     setCurrentProjectId(nextProjectId);
