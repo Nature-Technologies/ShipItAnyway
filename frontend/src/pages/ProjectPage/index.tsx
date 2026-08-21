@@ -1,11 +1,11 @@
 import { Alert, Button, Card, Col, Layout, Row, Space, Statistic, Tabs, Tag, Typography, Upload } from 'antd';
 import { PlayCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
-import AppHeader from '../../components/AppHeader';
-import AppFooter from '../../components/AppFooter';
-import RunStatusBadge from '../../components/RunStatusBadge';
-import UserMenu from '../../components/UserMenu';
-import { ScheduleFormModal } from '../../components/ScheduleFormModal';
+import AppHeader from '@/components/AppHeader';
+import AppFooter from '@/components/AppFooter';
+import RunStatusBadge from '@/components/RunStatusBadge';
+import UserMenu from '@/components/UserMenu';
+import { ScheduleFormModal } from '@/components/ScheduleFormModal';
 import { ProjectPageProvider, useProjectPage } from './hooks/useProjectPage';
 import { formatCreatedLabel, formatDuration, type ProjectTabKey } from './utils';
 import OverviewTab from './components/tabs/OverviewTab';

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import type { Step } from '../types/step';
 import { resolveBrowserUrl } from '../utils/runtime-url';
-import { resolveLocator } from '../utils/locator';
+import { resolveLocator } from '@/utils/locator';
 import { hasUnresolvedVariables, interpolateStep } from '../utils/interpolate';
 import { resolveDeviceConfig } from '../utils/devices';
 import { getBrowserName, launchChromium } from '../utils/browser';
