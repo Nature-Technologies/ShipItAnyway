@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import prisma from '../prisma';
-import { canCreateProject, isSuperadmin } from '../utils/project-access';
+import { canCreateProject, isSuperadmin, isTeamsManager } from '../utils/project-access';
 import { hashInviteToken } from '../utils/invite-token';
 
 const LoginSchema = z.object({
@@ -58,7 +58,8 @@ export async function authRoutes(fastify: FastifyInstance) {
       token,
       email: user.email,
       canCreateProject: await canCreateProject(user.id, user.email),
-      isSuperadmin: await isSuperadmin(user.id)
+      isSuperadmin: await isSuperadmin(user.id),
+      canManageTeams: await isTeamsManager(user.id)
     };
   });
 
@@ -97,12 +98,14 @@ export async function authRoutes(fastify: FastifyInstance) {
         create: { email: invite.email, passwordHash }
       });
 
-      const groupId = invite.groupId
-        ?? (await tx.group.findFirstOrThrow({ where: { name: 'VIEWER' } })).id;
-      await tx.userGroup.upsert({
-        where: { userId_groupId: { userId: u.id, groupId } }, update: {},
-        create: { userId: u.id, groupId }
-      });
+      // Capability is superadmin-granted. If the invite carried no group, the user joins with
+      // no scopes and waits for a superadmin to assign a group in the Access console.
+      if (invite.groupId) {
+        await tx.userGroup.upsert({
+          where: { userId_groupId: { userId: u.id, groupId: invite.groupId } }, update: {},
+          create: { userId: u.id, groupId: invite.groupId }
+        });
+      }
       if (invite.teamId) {
         await tx.teamMember.upsert({
           where: { teamId_userId: { teamId: invite.teamId, userId: u.id } }, update: {},
@@ -123,7 +126,8 @@ export async function authRoutes(fastify: FastifyInstance) {
       userId: payload.userId,
       email: payload.email,
       canCreateProject: await canCreateProject(payload.userId, payload.email),
-      isSuperadmin: await isSuperadmin(payload.userId)
+      isSuperadmin: await isSuperadmin(payload.userId),
+      canManageTeams: await isTeamsManager(payload.userId)
     };
   });
 

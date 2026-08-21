@@ -9,7 +9,9 @@ async function grant(userId: string, groupName: string) {
   await prisma.userGroup.create({ data: { userId, groupId: g.id } });
 }
 async function team(projectId: string, userIds: string[]) {
-  const t = await prisma.team.create({ data: { name: 'T', projects: { create: { projectId } } } });
+  const t = await prisma.team.create({
+    data: { name: `T-${projectId}-${Math.random().toString(16).slice(2)}`, projects: { create: { projectId } } }
+  });
   for (const userId of userIds) await prisma.teamMember.create({ data: { teamId: t.id, userId } });
   return t;
 }

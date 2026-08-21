@@ -28,3 +28,17 @@ export const SYSTEM_GROUPS: { name: string; isGlobal: boolean; scopes: Scope[] }
 export const ROLE_TO_GROUP: Record<'OWNER' | 'EDITOR' | 'VIEWER', string> = {
   OWNER: 'OWNER', EDITOR: 'EDITOR', VIEWER: 'VIEWER'
 };
+
+// Scope wire format: the DB Prisma enum is underscored (`runs_read`), but the API/UI speak the
+// canonical `resource:action` form (`runs:read`, `environments:reveal-secrets`). Convert only at
+// the HTTP boundary; internal `can()/requireScope` keep the Prisma enum.
+export function toApiScope(scope: Scope): string {
+  return scope.replace('_', ':').replaceAll('_', '-');
+}
+
+export function fromApiScope(scope: string): Scope | null {
+  const db = scope.replace(':', '_').replaceAll('-', '_');
+  return (Object.values(Scope) as string[]).includes(db) ? (db as Scope) : null;
+}
+
+export const ALL_API_SCOPES: string[] = Object.values(Scope).map(toApiScope);

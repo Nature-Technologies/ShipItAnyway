@@ -3,6 +3,7 @@ import { z } from 'zod';
 import prisma from '../prisma';
 import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/project.schema';
 import type { RunStatus } from '@prisma/client';
+import { toApiScope } from '../constants/rbac';
 import {
   getAccessibleProjectIds,
   getAuthUser,
@@ -19,7 +20,7 @@ type ProjectListItem = {
   name: string;
   createdAt: Date;
   updatedAt: Date;
-  currentUserScopes: Scope[];
+  currentUserScopes: string[]; // API `resource:action` form (see toApiScope)
   checksCount: number;
   activeSchedulesCount: number;
   alertChannelsCount: number;
@@ -151,7 +152,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
         name: project.name,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        currentUserScopes: Array.from(await resolveScopes(userId, project.id)),
+        currentUserScopes: Array.from(await resolveScopes(userId, project.id)).map(toApiScope),
         checksCount: project.tests.length,
         activeSchedulesCount: project.schedules.length,
         alertChannelsCount: project.channels.length,
@@ -321,7 +322,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     return {
       ...project,
-      currentUserScopes: Array.from(access),
+      currentUserScopes: Array.from(access).map(toApiScope),
       summary: {
         checksCount: project.tests.length,
         lastResult: latestProjectRun?.status ?? null,

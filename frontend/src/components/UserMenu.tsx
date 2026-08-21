@@ -35,7 +35,7 @@ function getApiErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function UserMenu() {
-  const { email, logout, changePassword, isSuperadmin } = useAuth();
+  const { email, logout, changePassword, isSuperadmin, canManageTeams } = useAuth();
   const navigate = useNavigate();
   const [aboutOpen, setAboutOpen] = useState(false);
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
@@ -162,7 +162,7 @@ export default function UserMenu() {
             { key: 'about', icon: <InfoCircleOutlined />, label: 'About ShipItAnyway' },
             { key: 'release-notes', icon: <ProfileOutlined />, label: 'Release notes' },
             { key: 'change-password', icon: <UserOutlined />, label: 'Change password' },
-            ...(isSuperadmin
+            ...(isSuperadmin || canManageTeams
               ? [{ key: 'access', icon: <SafetyOutlined />, label: 'Access console' }]
               : []),
             { type: 'divider' as const },

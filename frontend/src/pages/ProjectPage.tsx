@@ -1346,6 +1346,19 @@ export default function ProjectPage() {
     setInviteModalOpen(true);
   };
 
+  // Teams are global and created in the Access console; here we only attach an existing team so
+  // its members gain access to this project.
+  const handleAttachExistingTeam = async (teamId: string) => {
+    if (!project) return;
+    try {
+      await attachTeamToProject(teamId, project.id);
+      message.success('Team attached');
+      await loadMembersTab();
+    } catch (error) {
+      message.error(extractError(error, 'Failed to attach team'));
+    }
+  };
+
   const handleCreateTeam = async () => {
     if (!project || !teamName.trim()) { message.error('Team name is required'); return; }
     setTeamSaving(true);
@@ -2745,40 +2758,18 @@ export default function ProjectPage() {
                 {canManageTeams && (
                   <Card style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }} title="Teams">
                     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                      <Space.Compact style={{ width: '100%', maxWidth: 420 }}>
-                        <Input placeholder="New team name" value={teamName} onChange={(event) => setTeamName(event.target.value)} />
-                        <Button type="primary" loading={teamSaving} onClick={() => void handleCreateTeam()}>Create team</Button>
-                      </Space.Compact>
-                      <Table<Team>
-                        dataSource={teams}
-                        rowKey="id"
-                        pagination={false}
-                        locale={{ emptyText: 'No teams yet' }}
-                        columns={[
-                          { title: 'Team', dataIndex: 'name' },
-                          { title: 'Members', render: (_: unknown, row) => row.memberCount ?? 0 },
-                          { title: 'Projects', render: (_: unknown, row) => row.projectCount ?? 0 },
-                          {
-                            title: 'Add member',
-                            render: (_: unknown, row) => (
-                              <Select
-                                showSearch
-                                style={{ width: 220 }}
-                                placeholder="Add user by email"
-                                value={undefined}
-                                options={users.map((u) => ({ label: u.email, value: u.id }))}
-                                onChange={(userId) => { if (userId) void handleAddTeamMember(row.id, userId); }}
-                                filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-                              />
-                            )
-                          },
-                          {
-                            title: 'Actions',
-                            render: (_: unknown, row) => (
-                              <Button size="small" danger onClick={() => void handleDeleteTeam(row.id)}>Delete</Button>
-                            )
-                          }
-                        ]}
+                      <Text type="secondary">
+                        Attach an existing team to grant its members access to this project. Create and
+                        manage teams globally in the Access console.
+                      </Text>
+                      <Select<string>
+                        showSearch
+                        style={{ width: '100%', maxWidth: 420 }}
+                        placeholder="Attach a team…"
+                        value={undefined}
+                        options={teams.map((t) => ({ label: t.name, value: t.id }))}
+                        onChange={(teamId) => { if (teamId) void handleAttachExistingTeam(teamId); }}
+                        filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                       />
                     </Space>
                   </Card>

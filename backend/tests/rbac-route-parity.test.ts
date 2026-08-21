@@ -34,7 +34,7 @@ async function joinProject(projectId: string, userId: string, groupName: Tier) {
     where: { userId_groupId: { userId, groupId: g.id } }, update: {}, create: { userId, groupId: g.id }
   });
   await prisma.team.create({
-    data: { name: 'tier', projects: { create: { projectId } }, members: { create: { userId } } }
+    data: { name: `tier-${projectId}`, projects: { create: { projectId } }, members: { create: { userId } } }
   });
 }
 

@@ -41,8 +41,30 @@ export async function teamRoutes(fastify: FastifyInstance) {
     if (!(await ensureTeamsManage(req, reply))) return;
     const result = TeamCreateSchema.safeParse(req.body);
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() });
-    const team = await prisma.team.create({ data: { name: result.data.name } });
-    return reply.status(201).send(team);
+    try {
+      const team = await prisma.team.create({ data: { name: result.data.name } });
+      return reply.status(201).send(team);
+    } catch {
+      return reply.status(409).send({ error: 'A team with that name already exists' });
+    }
+  });
+
+  fastify.get<{ Params: { id: string } }>('/teams/:id', async (req, reply) => {
+    if (!(await ensureTeamsManage(req, reply))) return;
+    const team = await prisma.team.findUnique({
+      where: { id: req.params.id },
+      include: {
+        members: { include: { user: { select: { id: true, email: true } } } },
+        projects: { include: { project: { select: { id: true, name: true } } } }
+      }
+    });
+    if (!team) return reply.status(404).send({ error: 'Team not found' });
+    return {
+      id: team.id,
+      name: team.name,
+      members: team.members.map((m) => ({ userId: m.userId, email: m.user.email })),
+      projects: team.projects.map((p) => ({ projectId: p.projectId, name: p.project.name }))
+    };
   });
 
   fastify.get('/teams', async (req, reply) => {
@@ -68,7 +90,11 @@ export async function teamRoutes(fastify: FastifyInstance) {
     const result = TeamUpdateSchema.safeParse(req.body);
     if (!result.success) return reply.status(400).send({ error: result.error.flatten() });
     if (!(await loadTeamOr404(req.params.id, reply))) return;
-    return prisma.team.update({ where: { id: req.params.id }, data: { name: result.data.name } });
+    try {
+      return await prisma.team.update({ where: { id: req.params.id }, data: { name: result.data.name } });
+    } catch {
+      return reply.status(409).send({ error: 'A team with that name already exists' });
+    }
   });
 
   fastify.delete<{ Params: { id: string } }>('/teams/:id', async (req, reply) => {

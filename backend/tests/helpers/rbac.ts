@@ -9,6 +9,6 @@ export async function joinProject(projectId: string, userId: string, groupName: 
     where: { userId_groupId: { userId, groupId: g.id } }, update: {}, create: { userId, groupId: g.id }
   });
   await prisma.team.create({
-    data: { name: 'test-harness', projects: { create: { projectId } }, members: { create: { userId } } }
+    data: { name: `test-harness-${projectId}`, projects: { create: { projectId } }, members: { create: { userId } } }
   });
 }

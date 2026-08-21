@@ -32,14 +32,16 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function SuperadminRoute({ children }: { children: ReactNode }) {
-  const { isSuperadmin, ready } = useAuth();
+// Access console is open to superadmins (Groups/Users) and to teams:manage holders (Teams tab).
+// The page itself hides the superadmin-only tabs from non-superadmins.
+function AccessRoute({ children }: { children: ReactNode }) {
+  const { isSuperadmin, canManageTeams, ready } = useAuth();
 
   if (!ready) {
     return null;
   }
 
-  if (!isSuperadmin) {
+  if (!isSuperadmin && !canManageTeams) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -77,7 +79,7 @@ export default function App() {
                     <Route path="/tests/:testId/edit" element={<TestEditorPage />} />
                     <Route path="/runs/:runId" element={<RunResultPage />} />
                     <Route path="/run-batches/:batchId" element={<RunBatchResultPage />} />
-                    <Route path="/access" element={<SuperadminRoute><AccessConsolePage /></SuperadminRoute>} />
+                    <Route path="/access" element={<AccessRoute><AccessConsolePage /></AccessRoute>} />
                   </Routes>
                 </ProtectedRoute>
               }

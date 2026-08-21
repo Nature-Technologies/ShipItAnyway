@@ -7,7 +7,7 @@ import { api, createTest, getDevices, getEnvironments, getProject, getTest, star
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import StepEditor, { ACTION_OPTIONS } from '../components/StepEditor';
-import { deriveProjectGates, type Scope } from '../utils/scopes';
+import { deriveProjectGates } from '../utils/scopes';
 import TestDataEditor from '../components/test-data/TestDataEditor';
 import VariableAutocompleteInput from '../components/VariableAutocompleteInput';
 import UserMenu from '../components/UserMenu';
@@ -224,7 +224,7 @@ export default function TestEditorPage() {
   const [novncAvailable, setNovncAvailable] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [currentProjectId, setCurrentProjectId] = useState<string | undefined>(projectId);
-  const [currentUserScopes, setCurrentUserScopes] = useState<Scope[]>([]);
+  const [currentUserScopes, setCurrentUserScopes] = useState<string[]>([]);
   const [stepIssues, setStepIssues] = useState<Array<StepIssue | undefined>>([]);
   const [firstInvalidStepIndex, setFirstInvalidStepIndex] = useState<number | null>(null);
   const [initialSnapshotReady, setInitialSnapshotReady] = useState(false);

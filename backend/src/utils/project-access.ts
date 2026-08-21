@@ -72,11 +72,13 @@ export async function countSuperadmins(): Promise<number> {
   return rows.length;
 }
 
-export async function requireTeamsManage(userId: string): Promise<void> {
+export async function isTeamsManager(userId: string): Promise<boolean> {
   const { membershipScopes, globalScopes } = await resolveUserScopes(userId);
-  if (!membershipScopes.has('teams_manage') && !globalScopes.has('teams_manage')) {
-    throw forbidden();
-  }
+  return membershipScopes.has('teams_manage') || globalScopes.has('teams_manage');
+}
+
+export async function requireTeamsManage(userId: string): Promise<void> {
+  if (!(await isTeamsManager(userId))) throw forbidden();
 }
 
 // Returns the effective scope set on success (callers use it for secret masking); throws 404/403 otherwise.

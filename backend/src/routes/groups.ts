@@ -2,15 +2,23 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { Scope } from '@prisma/client';
 import prisma from '../prisma';
+import { fromApiScope, toApiScope } from '../constants/rbac';
 import { getAuthUser, getProjectAccessStatusCode, requireSuperadmin } from '../utils/project-access';
+
+// Accept the API `resource:action` form and convert to the Prisma enum; reject unknown scopes.
+const apiScope = z.string().transform((s, ctx): Scope => {
+  const v = fromApiScope(s);
+  if (!v) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Unknown scope: ${s}` }); return z.NEVER; }
+  return v;
+});
 
 const GroupCreateSchema = z.object({
   name: z.string().trim().min(1),
-  scopes: z.array(z.nativeEnum(Scope)).default([])
+  scopes: z.array(apiScope).default([])
 });
 const GroupUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
-  scopes: z.array(z.nativeEnum(Scope)).optional()
+  scopes: z.array(apiScope).optional()
 }).refine((v) => v.name !== undefined || v.scopes !== undefined, 'Nothing to update');
 
 async function ensureSuperadmin(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
@@ -24,7 +32,7 @@ async function ensureSuperadmin(req: FastifyRequest, reply: FastifyReply): Promi
 }
 
 const serialize = (g: { id: string; name: string; isSystem: boolean; isGlobal: boolean; scopes: { scope: Scope }[] }) =>
-  ({ id: g.id, name: g.name, isSystem: g.isSystem, isGlobal: g.isGlobal, scopes: g.scopes.map((s) => s.scope) });
+  ({ id: g.id, name: g.name, isSystem: g.isSystem, isGlobal: g.isGlobal, scopes: g.scopes.map((s) => toApiScope(s.scope)) });
 
 export async function groupRoutes(fastify: FastifyInstance) {
   fastify.get('/groups', async (req, reply) => {

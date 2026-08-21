@@ -1,19 +1,20 @@
-// Underscored scope literals match the backend Prisma `Scope` enum emitted in `currentUserScopes`.
+// Canonical `resource:action` scope literals — match the API form emitted in `currentUserScopes`.
 export type Scope =
-  | 'checks_edit'
-  | 'runs_trigger'
-  | 'schedules_edit'
-  | 'environments_edit'
-  | 'alerts_edit'
-  | 'teams_manage'
-  | 'members_read';
+  | 'checks:edit'
+  | 'runs:trigger'
+  | 'schedules:edit'
+  | 'environments:edit'
+  | 'alerts:edit'
+  | 'teams:manage'
+  | 'members:read';
 
-export function can(scopes: Scope[], scope: Scope): boolean {
+// scopes is the raw wire array (full catalog, `resource:action` form); scope is a known gate.
+export function can(scopes: readonly string[], scope: Scope): boolean {
   return scopes.includes(scope);
 }
 
-export function isReadOnly(scopes: Scope[]): boolean {
-  return !scopes.some((s) => s.endsWith('_edit'));
+export function isReadOnly(scopes: readonly string[]): boolean {
+  return !scopes.some((s) => s.endsWith(':edit'));
 }
 
 export interface ProjectGates {
@@ -27,15 +28,15 @@ export interface ProjectGates {
   readOnly: boolean;
 }
 
-export function deriveProjectGates(scopes: Scope[]): ProjectGates {
+export function deriveProjectGates(scopes: readonly string[]): ProjectGates {
   return {
-    canEditChecks: can(scopes, 'checks_edit'),
-    canTriggerRuns: can(scopes, 'runs_trigger'),
-    canEditSchedules: can(scopes, 'schedules_edit'),
-    canEditEnvironments: can(scopes, 'environments_edit'),
-    canEditAlerts: can(scopes, 'alerts_edit'),
-    canManageTeams: can(scopes, 'teams_manage'),
-    canReadMembers: can(scopes, 'members_read'),
+    canEditChecks: can(scopes, 'checks:edit'),
+    canTriggerRuns: can(scopes, 'runs:trigger'),
+    canEditSchedules: can(scopes, 'schedules:edit'),
+    canEditEnvironments: can(scopes, 'environments:edit'),
+    canEditAlerts: can(scopes, 'alerts:edit'),
+    canManageTeams: can(scopes, 'teams:manage'),
+    canReadMembers: can(scopes, 'members:read'),
     readOnly: isReadOnly(scopes)
   };
 }

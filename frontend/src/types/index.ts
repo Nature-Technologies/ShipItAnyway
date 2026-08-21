@@ -110,7 +110,7 @@ export interface ProjectWorkspace extends Project {
   summary: ProjectWorkspaceSummary;
   tests: ProjectCheck[];
   suites?: Array<Suite & { schedules: ProjectCheckSchedule[] }>;
-  currentUserScopes?: Scope[];
+  currentUserScopes?: string[]; // API `resource:action` form
   members?: ProjectMember[];
 }
 
@@ -121,15 +121,21 @@ export interface Group {
   name: string;
   isSystem: boolean;
   isGlobal: boolean;
-  scopes: Scope[];
+  scopes: string[]; // full catalog, `resource:action` form
 }
 
 export interface Team {
   id: string;
   name: string;
-  projectId?: string | null;
   memberCount?: number;
   projectCount?: number;
+}
+
+export interface TeamDetail {
+  id: string;
+  name: string;
+  members: Array<{ userId: string; email: string }>;
+  projects: Array<{ projectId: string; name: string }>;
 }
 
 export interface ProjectMember {
@@ -137,7 +143,7 @@ export interface ProjectMember {
   email: string;
   teams: Team[];
   groups: string[];
-  scopes: Scope[];
+  scopes: string[];
 }
 
 export interface Invite {

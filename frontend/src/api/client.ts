@@ -11,6 +11,7 @@ import type {
   Project,
   ProjectMember,
   Team,
+  TeamDetail,
   ProjectWorkspace,
   ProjectSummary,
   Schedule,
@@ -115,8 +116,12 @@ export const setUserGroups = (userId: string, groupIds: string[]) =>
 // Teams (delegated via teams_manage)
 export const getTeams = () =>
   api.get<Team[]>('/teams').then((r) => r.data);
+export const getTeam = (id: string) =>
+  api.get<TeamDetail>(`/teams/${id}`).then((r) => r.data);
 export const createTeam = (data: { name: string }) =>
   api.post<Team>('/teams', data).then((r) => r.data);
+export const updateTeam = (id: string, data: { name: string }) =>
+  api.patch<Team>(`/teams/${id}`, data).then((r) => r.data);
 export const deleteTeam = (id: string) => api.delete(`/teams/${id}`);
 export const attachTeamToProject = (teamId: string, projectId: string) =>
   api.post(`/teams/${teamId}/projects`, { projectId });
