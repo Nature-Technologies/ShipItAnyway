@@ -14,6 +14,7 @@ import {
   getProjects
 } from '../api/client';
 import { qk } from '../lib/queryKeys';
+import { useConfirm } from '../context/ConfirmContext';
 import type { Group, Team } from '../types';
 
 const { Content } = Layout;
@@ -42,6 +43,7 @@ type UserRow = { id: string; email: string; groupIds: string[] };
 export default function AccessConsolePage() {
   const { isSuperadmin } = useAuth();
   const qc = useQueryClient();
+  const confirm = useConfirm();
 
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
@@ -159,6 +161,8 @@ export default function AccessConsolePage() {
   };
 
   const handleDeleteGroup = async (id: string) => {
+    try { await confirm({ title: 'Delete group?', description: 'Members lose the capabilities this group grants. This cannot be undone.', confirmationText: 'Delete', danger: true }); }
+    catch { return; }
     try { await deleteGroupMutation.mutateAsync(id); message.success('Group deleted'); }
     catch (error) { message.error(extractError(error, 'Failed to delete group')); }
   };
@@ -183,6 +187,8 @@ export default function AccessConsolePage() {
   };
 
   const handleDeleteTeam = async (id: string) => {
+    try { await confirm({ title: 'Delete team?', description: 'The team is removed from every project it is attached to, and its members lose that access. This cannot be undone.', confirmationText: 'Delete', danger: true }); }
+    catch { return; }
     try { await deleteTeamMutation.mutateAsync(id); message.success('Team deleted'); }
     catch (error) { message.error(extractError(error, 'Failed to delete team')); }
   };
@@ -192,6 +198,8 @@ export default function AccessConsolePage() {
     catch (error) { message.error(extractError(error, 'Failed to add member')); }
   };
   const handleRemoveMember = async (userId: string) => {
+    try { await confirm({ title: 'Remove member?', description: 'They lose access granted through this team.', confirmationText: 'Remove', danger: true }); }
+    catch { return; }
     try { await removeMemberMutation.mutateAsync(userId); }
     catch (error) { message.error(extractError(error, 'Failed to remove member')); }
   };
@@ -200,6 +208,8 @@ export default function AccessConsolePage() {
     catch (error) { message.error(extractError(error, 'Failed to attach project')); }
   };
   const handleDetach = async (projectId: string) => {
+    try { await confirm({ title: 'Detach project?', description: "The team's members lose access to this project.", confirmationText: 'Detach', danger: true }); }
+    catch { return; }
     try { await detachMutation.mutateAsync(projectId); }
     catch (error) { message.error(extractError(error, 'Failed to detach project')); }
   };

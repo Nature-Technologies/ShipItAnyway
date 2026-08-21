@@ -50,7 +50,7 @@ test('members list is team-derived; project create is superadmin-only; mutations
     assert.equal(members.length, 2); // alice once, bob once
     const aliceRow = members.find((m) => m.userId === alice.id)!;
     assert.equal(aliceRow.teams.length, 2);
-    assert.ok(aliceRow.scopes.includes('checks_edit')); // from EDITOR group
+    assert.ok(aliceRow.scopes.includes('checks:edit')); // from EDITOR group (API resource:action form)
 
     // removed mutation endpoint → 404
     assert.equal((await adminApp.inject({

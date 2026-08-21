@@ -461,4 +461,21 @@ export async function projectRoutes(fastify: FastifyInstance) {
     }));
   });
 
+  // Teams attached to this project — the true source, independent of whether those teams have
+  // members (so an empty attached team is still shown/detachable).
+  fastify.get<{ Params: { id: string } }>('/projects/:id/teams', async (req, reply) => {
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(req.params.id, userId, 'members_read');
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+    const links = await prisma.teamProject.findMany({
+      where: { projectId: req.params.id },
+      include: { team: { select: { id: true, name: true } } },
+      orderBy: { team: { name: 'asc' } }
+    });
+    return links.map((l) => l.team);
+  });
+
 }

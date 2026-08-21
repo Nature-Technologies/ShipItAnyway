@@ -92,6 +92,9 @@ export const getProject = (id: string) =>
 export const getProjectMembers = (projectId: string) =>
   api.get<ProjectMember[]>(`/projects/${projectId}/members`).then((r) => r.data);
 
+export const getProjectTeams = (projectId: string) =>
+  api.get<{ id: string; name: string }[]>(`/projects/${projectId}/teams`).then((r) => r.data);
+
 export const checkUserExists = (email: string) =>
   api.get<{ exists: boolean }>('/users/exists', {
     params: { email }

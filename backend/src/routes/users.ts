@@ -8,7 +8,7 @@ import {
 const SetGroupsSchema = z.object({ groupIds: z.array(z.string()).default([]) });
 const PaginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20)
+  limit: z.coerce.number().int().min(1).max(1000).default(20)
 });
 
 async function ensureSuperadmin(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {

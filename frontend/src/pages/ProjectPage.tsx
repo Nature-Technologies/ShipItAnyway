@@ -54,6 +54,7 @@ import {
   getEnvironments,
   getProject,
   getProjectMembers,
+  getProjectTeams,
   getSchedules,
   getSuites,
   importTestSpec,
@@ -105,6 +106,7 @@ import type {
   Group
 } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../context/ConfirmContext';
 import { deriveProjectGates } from '../utils/scopes';
 
 const { Content } = Layout;
@@ -483,6 +485,7 @@ function resolveTabFromPathname(pathname: string): ProjectTabKey {
 
 export default function ProjectPage() {
   const { isSuperadmin } = useAuth();
+  const confirm = useConfirm();
   const { projectId } = useParams<{ projectId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -542,6 +545,7 @@ export default function ProjectPage() {
   const [deletingProject, setDeletingProject] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [attachedTeams, setAttachedTeams] = useState<{ id: string; name: string }[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [users, setUsers] = useState<Array<{ id: string; email: string }>>([]);
@@ -606,10 +610,11 @@ export default function ProjectPage() {
   }, [workspaceQuery.data]);
 
   const fetchMembersData = async () => {
-    const [membersR, teamsR, invitesR, groupsR, usersR] = await Promise.allSettled([
+    const [membersR, teamsR, attachedR, invitesR, groupsR, usersR] = await Promise.allSettled([
       getProjectMembers(projectId!),
       // ponytail: dropdowns fetch first 1000 teams/users; add server-side search when lists outgrow that.
       getTeams({ limit: 1000 }).then((r) => r.teams),
+      getProjectTeams(projectId!),
       canManageTeams ? getInvites() : Promise.resolve([] as Invite[]),
       isSuperadmin ? getGroups() : Promise.resolve([] as Group[]),
       canManageTeams ? getUsers({ limit: 1000 }).then((r) => r.users) : Promise.resolve([] as Array<{ id: string; email: string }>)
@@ -617,6 +622,7 @@ export default function ProjectPage() {
     return {
       members: settledValue(membersR, []),
       teams: settledValue(teamsR, []),
+      attachedTeams: settledValue(attachedR, [] as { id: string; name: string }[]),
       invites: settledValue(invitesR, []),
       groups: settledValue(groupsR, []),
       users: settledValue(usersR, [])
@@ -634,6 +640,7 @@ export default function ProjectPage() {
     if (!d) return;
     setProjectMembers(d.members);
     setTeams(d.teams);
+    setAttachedTeams(d.attachedTeams);
     setInvites(d.invites);
     setGroups(d.groups);
     setUsers(d.users);
@@ -651,6 +658,7 @@ export default function ProjectPage() {
     setDeleteProjectModalOpen(false);
     setProjectMembers([]);
     setTeams([]);
+    setAttachedTeams([]);
     setInvites([]);
     setInviteModalOpen(false);
   }, [projectId]);
@@ -1389,6 +1397,8 @@ export default function ProjectPage() {
 
   const handleDetachTeam = async (teamId: string) => {
     if (!project) return;
+    try { await confirm({ title: 'Detach team?', description: "The team's members lose access to this project.", confirmationText: 'Detach', danger: true }); }
+    catch { return; }
     try {
       await detachTeamFromProject(teamId, project.id);
       message.success('Team detached');
@@ -1435,6 +1445,8 @@ export default function ProjectPage() {
   };
 
   const handleRemoveTeamMember = async (teamId: string, userId: string) => {
+    try { await confirm({ title: 'Remove member?', description: 'They lose access granted through this team.', confirmationText: 'Remove', danger: true }); }
+    catch { return; }
     try {
       await removeTeamMember(teamId, userId);
       message.success('Member removed');
@@ -1464,6 +1476,8 @@ export default function ProjectPage() {
   };
 
   const handleRevokeInvite = async (id: string) => {
+    try { await confirm({ title: 'Revoke invite?', description: 'The invite link stops working immediately.', confirmationText: 'Revoke', danger: true }); }
+    catch { return; }
     try {
       await revokeInvite(id);
       message.success('Invite revoked');
@@ -1477,14 +1491,7 @@ export default function ProjectPage() {
     project && deleteProjectConfirmText.trim() === project.name.trim()
   );
 
-  // Teams attached to this project, derived from members' team tags (the members endpoint only
-  // surfaces teams linked to this project). ponytail: a team attached with zero members won't
-  // appear here — add a dedicated attached-teams field if empty attachments need detaching.
-  const attachedTeams = useMemo(() => {
-    const map = new Map<string, { id: string; name: string }>();
-    projectMembers.forEach((m) => m.teams.forEach((t) => map.set(t.id, { id: t.id, name: t.name })));
-    return [...map.values()];
-  }, [projectMembers]);
+  // attachedTeams comes from GET /projects/:id/teams (true attachment set, incl. empty teams).
   const attachedTeamIds = new Set(attachedTeams.map((t) => t.id));
 
   const runSuiteItems = suites.map((suite) => ({

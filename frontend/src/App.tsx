@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { ConfigProvider, Spin, theme } from 'antd';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ConfirmationProvider } from './context/ConfirmContext';
 
 // Route-level code splitting: each page ships in its own chunk, loaded on demand.
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -58,6 +59,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
+        <ConfirmationProvider>
         <BrowserRouter>
           <Suspense fallback={<PageFallback />}>
           <Routes>
@@ -94,6 +96,7 @@ export default function App() {
           </Routes>
           </Suspense>
         </BrowserRouter>
+        </ConfirmationProvider>
       </ConfigProvider>
     </AuthProvider>
   );
