@@ -244,7 +244,10 @@ export async function validateSteps(url: string, steps: Step[], device?: string)
         let lastError: unknown;
         let primaryActionError: unknown = null;
 
-        if (preferred.count === 1) {
+        // Attempt the recorded selector first whenever it is not ambiguous (0 or 1 match).
+        // count===0 covers targets that appear late (e.g. autocomplete dropdowns): Playwright's
+        // click auto-waits up to 10s for the element, so don't pre-reject on the 2s existence poll.
+        if (preferred.count <= 1) {
           try {
             await performValidationAction(page, step, step.selector);
             results.push({ index, status: 'ok', selector: step.selector, resolvedCount: 1 });

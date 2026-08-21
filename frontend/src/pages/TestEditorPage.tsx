@@ -154,6 +154,26 @@ function validateRequiredStepFields(step: Step): StepIssue | null {
   }
 }
 
+// Turn an axios/API error into a user-visible message. Handles plain string errors
+// ({ error: "..." }) and zod flatten shapes ({ error: { formErrors, fieldErrors } }).
+function extractSaveErrorMessage(error: unknown): string {
+  const data = (error as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+  if (typeof data === 'string' && data.trim()) return data;
+  if (data && typeof data === 'object') {
+    const { formErrors, fieldErrors } = data as {
+      formErrors?: string[];
+      fieldErrors?: Record<string, string[]>;
+    };
+    const parts: string[] = [];
+    for (const [field, msgs] of Object.entries(fieldErrors ?? {})) {
+      if (msgs?.length) parts.push(`${field}: ${msgs.join(', ')}`);
+    }
+    if (formErrors?.length) parts.push(...formErrors);
+    if (parts.length) return `Could not save: ${parts.join('; ')}`;
+  }
+  return error instanceof Error && error.message ? error.message : 'Failed to save check';
+}
+
 function validateStepRequirements(steps: Step[]) {
   const issues = steps.map((step) => validateRequiredStepFields(step) ?? undefined);
   const firstInvalidIndex = issues.findIndex(Boolean);
@@ -269,6 +289,11 @@ export default function TestEditorPage() {
     },
     onSuccess: (saved) => {
       void qc.invalidateQueries({ queryKey: qk.test(saved.id) });
+    },
+    onError: (error) => {
+      const text = extractSaveErrorMessage(error);
+      setValidationFeedback({ type: 'error', text });
+      message.error(text);
     }
   });
   const runMutation = useMutation({
@@ -304,7 +329,9 @@ export default function TestEditorPage() {
 
   const [confirmModal, confirmModalContextHolder] = Modal.useModal();
   const isEdit = Boolean(testId);
-  const isReadOnly = !deriveProjectGates(currentUserScopes).canEditChecks;
+  // Only treat as read-only once scopes are actually known; while projectQuery is in flight
+  // currentUserScopes is [] which would otherwise flash a false "Read-only access" state.
+  const isReadOnly = projectQuery.isSuccess && !deriveProjectGates(currentUserScopes).canEditChecks;
   const checkName = Form.useWatch('name', form);
   const selectedUrl = Form.useWatch('url', form);
   const selectedDevice = Form.useWatch('device', form);
