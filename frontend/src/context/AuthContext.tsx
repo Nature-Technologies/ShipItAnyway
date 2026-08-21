@@ -74,15 +74,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsSuperadmin(Boolean(data.isSuperadmin));
           setCanManageTeams(Boolean(data.canManageTeams));
         }
-      } catch {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(EMAIL_KEY);
-        if (!cancelled) {
-          setToken(null);
-          setEmail(null);
-          setCanCreateProject(false);
-          setIsSuperadmin(false);
-          setCanManageTeams(false);
+      } catch (err) {
+        // Only a real auth failure (401) invalidates the session. Transient errors
+        // — rate limits (429), 5xx, network blips — must NOT wipe the token, or a
+        // request burst (e.g. duplicating a signed-in tab) logs the user out of every
+        // tab via shared localStorage and blocks re-login while the window is open.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(EMAIL_KEY);
+          if (!cancelled) {
+            setToken(null);
+            setEmail(null);
+            setCanCreateProject(false);
+            setIsSuperadmin(false);
+            setCanManageTeams(false);
+          }
         }
       } finally {
         if (!cancelled) setReady(true);
