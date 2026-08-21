@@ -25,8 +25,10 @@ export const qk = {
   devices: ['devices'] as const,
   groups: ['groups'] as const,
   users: ['users'] as const,
+  usersPaged: (page: number, limit: number) => ['users', page, limit] as const,
   userGroups: (userId: string) => ['user', userId, 'groups'] as const,
   teams: ['teams'] as const,
+  teamsPaged: (page: number, limit: number) => ['teams', page, limit] as const,
   team: (id: string) => ['team', id] as const,
   invites: ['invites'] as const,
   invite: (token: string) => ['invite', token] as const

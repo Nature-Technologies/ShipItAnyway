@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Input, Layout, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import AppHeader from '../components/AppHeader';
@@ -8,7 +8,7 @@ import UserMenu from '../components/UserMenu';
 import { useAuth } from '../context/AuthContext';
 import {
   getGroups, createGroup, updateGroup, deleteGroup,
-  getUsers, getUserGroups, setUserGroups,
+  getUsers, setUserGroups,
   getTeams, getTeam, createTeam, updateTeam, deleteTeam,
   addTeamMember, removeTeamMember, attachTeamToProject, detachTeamFromProject,
   getProjects
@@ -18,6 +18,7 @@ import type { Group, Team } from '../types';
 
 const { Content } = Layout;
 const { Text } = Typography;
+const PAGE_SIZE = 20;
 
 // Full scope catalog in the API `resource:action` form. The gating catalog in utils/scopes is
 // only the subset the UI gates on; custom groups may grant any scope.
@@ -51,25 +52,40 @@ export default function AccessConsolePage() {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [teamName, setTeamName] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [usersPage, setUsersPage] = useState(1);
+  const [teamsPage, setTeamsPage] = useState(1);
 
   const groupsQuery = useQuery({ queryKey: qk.groups, queryFn: getGroups, enabled: isSuperadmin });
   const groups = groupsQuery.data ?? [];
 
+  // One paginated call per page, groups embedded — no per-user /groups fetch.
   const usersQuery = useQuery({
-    queryKey: qk.users,
-    queryFn: async (): Promise<UserRow[]> => {
-      const list = await getUsers();
-      return Promise.all(list.map(async (u) => ({
-        id: u.id, email: u.email,
-        groupIds: (await getUserGroups(u.id)).map((g) => g.id)
-      })));
-    },
-    enabled: isSuperadmin
+    queryKey: qk.usersPaged(usersPage, PAGE_SIZE),
+    queryFn: () => getUsers({ page: usersPage, limit: PAGE_SIZE }),
+    enabled: isSuperadmin,
+    placeholderData: keepPreviousData
   });
-  const users = usersQuery.data ?? [];
+  const userRows: UserRow[] = (usersQuery.data?.users ?? []).map((u) => ({
+    id: u.id, email: u.email, groupIds: u.groups.map((g) => g.id)
+  }));
+  const usersTotal = usersQuery.data?.total ?? 0;
 
-  const teamsQuery = useQuery({ queryKey: qk.teams, queryFn: getTeams });
-  const teams = teamsQuery.data ?? [];
+  const teamsQuery = useQuery({
+    queryKey: qk.teamsPaged(teamsPage, PAGE_SIZE),
+    queryFn: () => getTeams({ page: teamsPage, limit: PAGE_SIZE }),
+    placeholderData: keepPreviousData
+  });
+  const teams = teamsQuery.data?.teams ?? [];
+  const teamsTotal = teamsQuery.data?.total ?? 0;
+
+  // Full user list for the team-manage "add member" picker (only when a team is open).
+  // ponytail: first 1000; add server-side search when the roster outgrows that.
+  const pickerUsersQuery = useQuery({
+    queryKey: ['users', 'picker'],
+    queryFn: () => getUsers({ limit: 1000 }),
+    enabled: Boolean(selectedTeamId)
+  });
+  const pickerUsers = pickerUsersQuery.data?.users ?? [];
 
   const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: getProjects });
   const allProjects = (projectsQuery.data ?? []).map((p) => ({ id: p.id, name: p.name }));
@@ -223,7 +239,8 @@ export default function AccessConsolePage() {
     children: (
       <Card style={cardStyle} title="User group assignment">
         <Table<UserRow>
-          dataSource={users} rowKey="id" pagination={false}
+          dataSource={userRows} rowKey="id" loading={usersQuery.isFetching}
+          pagination={{ current: usersPage, pageSize: PAGE_SIZE, total: usersTotal, onChange: setUsersPage, showSizeChanger: false }}
           columns={[
             { title: 'Email', dataIndex: 'email' },
             { title: 'Groups', render: (_: unknown, row) => (
@@ -248,7 +265,8 @@ export default function AccessConsolePage() {
         </Text>
         <Table<Team>
           style={{ marginTop: 16 }}
-          dataSource={teams} rowKey="id" pagination={false}
+          dataSource={teams} rowKey="id" loading={teamsQuery.isFetching}
+          pagination={{ current: teamsPage, pageSize: PAGE_SIZE, total: teamsTotal, onChange: setTeamsPage, showSizeChanger: false }}
           columns={[
             { title: 'Name', dataIndex: 'name', render: (name: string) => <Text strong>{name}</Text> },
             { title: 'Members', dataIndex: 'memberCount' },
@@ -272,7 +290,7 @@ export default function AccessConsolePage() {
   ];
 
   const attachableProjects = allProjects.filter((p) => !detail?.projects.some((dp) => dp.projectId === p.id));
-  const addableUsers = users.filter((u) => !detail?.members.some((m) => m.userId === u.id));
+  const addableUsers = pickerUsers.filter((u) => !detail?.members.some((m) => m.userId === u.id));
 
   return (
     <Layout style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f7f3ff 0%, #eef4ff 55%, #ffffff 100%)' }}>

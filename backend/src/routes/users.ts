@@ -6,6 +6,10 @@ import {
 } from '../utils/project-access';
 
 const SetGroupsSchema = z.object({ groupIds: z.array(z.string()).default([]) });
+const PaginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20)
+});
 
 async function ensureSuperadmin(req: FastifyRequest, reply: FastifyReply): Promise<boolean> {
   try {
@@ -18,9 +22,37 @@ async function ensureSuperadmin(req: FastifyRequest, reply: FastifyReply): Promi
 }
 
 export async function userRoutes(fastify: FastifyInstance) {
+  // Paginated, with each user's groups embedded — one call per page instead of the old
+  // N+1 (list users, then a /groups fetch per user) that hammered the API.
   fastify.get('/users', async (req, reply) => {
     if (!(await ensureSuperadmin(req, reply))) return;
-    return prisma.user.findMany({ select: { id: true, email: true }, orderBy: { email: 'asc' } });
+    const parsed = PaginationSchema.safeParse(req.query);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() });
+    const { page, limit } = parsed.data;
+
+    const [total, rows] = await prisma.$transaction([
+      prisma.user.count(),
+      prisma.user.findMany({
+        select: {
+          id: true,
+          email: true,
+          groups: {
+            select: { group: { select: { id: true, name: true, isSystem: true, isGlobal: true } } },
+            orderBy: { group: { name: 'asc' } }
+          }
+        },
+        orderBy: { email: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit
+      })
+    ]);
+
+    return {
+      users: rows.map((u) => ({ id: u.id, email: u.email, groups: u.groups.map((g) => g.group) })),
+      total,
+      page,
+      limit
+    };
   });
 
   fastify.get<{ Params: { id: string } }>('/users/:id/groups', async (req, reply) => {

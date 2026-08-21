@@ -1,22 +1,28 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import type { ReactNode } from 'react';
-import { ConfigProvider, theme } from 'antd';
+import { lazy, Suspense, type ReactNode } from 'react';
+import { ConfigProvider, Spin, theme } from 'antd';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import LoginPage from './pages/LoginPage';
-import AcceptInvitePage from './pages/AcceptInvitePage';
-import AccessConsolePage from './pages/AccessConsolePage';
-import DashboardPage from './pages/DashboardPage';
-import ProjectsPage from './pages/ProjectsPage';
-import EnvironmentsPage from './pages/EnvironmentsPage';
-import NotificationsPage from './pages/NotificationsPage';
-import ProjectPage from './pages/ProjectPage';
-import RunsPage from './pages/RunsPage';
-import SchedulesPage from './pages/SchedulesPage';
-import ScheduleHistoryPage from './pages/ScheduleHistoryPage';
-import SuitesPage from './pages/SuitesPage';
-import TestEditorPage from './pages/TestEditorPage';
-import RunResultPage from './pages/RunResultPage';
-import RunBatchResultPage from './pages/RunBatchResultPage';
+
+// Route-level code splitting: each page ships in its own chunk, loaded on demand.
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AcceptInvitePage = lazy(() => import('./pages/AcceptInvitePage'));
+const AccessConsolePage = lazy(() => import('./pages/AccessConsolePage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
+const EnvironmentsPage = lazy(() => import('./pages/EnvironmentsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const ProjectPage = lazy(() => import('./pages/ProjectPage'));
+const RunsPage = lazy(() => import('./pages/RunsPage'));
+const SchedulesPage = lazy(() => import('./pages/SchedulesPage'));
+const ScheduleHistoryPage = lazy(() => import('./pages/ScheduleHistoryPage'));
+const SuitesPage = lazy(() => import('./pages/SuitesPage'));
+const TestEditorPage = lazy(() => import('./pages/TestEditorPage'));
+const RunResultPage = lazy(() => import('./pages/RunResultPage'));
+const RunBatchResultPage = lazy(() => import('./pages/RunBatchResultPage'));
+
+function PageFallback() {
+  return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}><Spin size="large" /></div>;
+}
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { token, ready } = useAuth();
@@ -53,6 +59,7 @@ export default function App() {
     <AuthProvider>
       <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
         <BrowserRouter>
+          <Suspense fallback={<PageFallback />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/accept-invite" element={<AcceptInvitePage />} />
@@ -85,6 +92,7 @@ export default function App() {
               }
             />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </ConfigProvider>
     </AuthProvider>

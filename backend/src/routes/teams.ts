@@ -5,6 +5,10 @@ import {
   getAuthUser, getProjectAccessStatusCode, isSuperadmin, requireScope, requireTeamsManage
 } from '../utils/project-access';
 
+const PaginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20)
+});
 const TeamCreateSchema = z.object({ name: z.string().trim().min(1) });
 const TeamUpdateSchema = z.object({ name: z.string().trim().min(1) });
 const TeamMemberSchema = z.object({ userId: z.string().min(1) });
@@ -69,6 +73,10 @@ export async function teamRoutes(fastify: FastifyInstance) {
 
   fastify.get('/teams', async (req, reply) => {
     const { userId } = getAuthUser(req);
+    const parsed = PaginationSchema.safeParse(req.query);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() });
+    const { page, limit } = parsed.data;
+
     // Superadmins and teams_manage holders manage all teams (capability is global); others see
     // only the teams they belong to.
     let canManageAll = await isSuperadmin(userId);
@@ -77,12 +85,23 @@ export async function teamRoutes(fastify: FastifyInstance) {
     }
     // ponytail: two-tier visibility (all vs member-of). Per-project narrowing deferred — a
     // teams_manage holder can already manage every team, so "all" is the correct set for them.
-    const teams = await prisma.team.findMany({
-      where: canManageAll ? undefined : { members: { some: { userId } } },
-      include: { _count: { select: { members: true, projects: true } } },
-      orderBy: { name: 'asc' }
-    });
-    return teams.map((t) => ({ id: t.id, name: t.name, memberCount: t._count.members, projectCount: t._count.projects }));
+    const where = canManageAll ? undefined : { members: { some: { userId } } };
+    const [total, teams] = await prisma.$transaction([
+      prisma.team.count({ where }),
+      prisma.team.findMany({
+        where,
+        include: { _count: { select: { members: true, projects: true } } },
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit
+      })
+    ]);
+    return {
+      teams: teams.map((t) => ({ id: t.id, name: t.name, memberCount: t._count.members, projectCount: t._count.projects })),
+      total,
+      page,
+      limit
+    };
   });
 
   fastify.patch<{ Params: { id: string } }>('/teams/:id', async (req, reply) => {

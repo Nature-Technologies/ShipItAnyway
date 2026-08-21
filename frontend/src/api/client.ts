@@ -106,16 +106,19 @@ export const updateGroup = (id: string, data: Partial<{ name: string; scopes: st
 export const deleteGroup = (id: string) => api.delete(`/groups/${id}`);
 
 // Users + global group assignment (superadmin)
-export const getUsers = () =>
-  api.get<Array<{ id: string; email: string }>>('/users').then((r) => r.data);
+export type UserWithGroups = { id: string; email: string; groups: Group[] };
+export type UsersPage = { users: UserWithGroups[]; total: number; page: number; limit: number };
+export const getUsers = (params?: { page?: number; limit?: number }) =>
+  api.get<UsersPage>('/users', { params }).then((r) => r.data);
 export const getUserGroups = (userId: string) =>
   api.get<Group[]>(`/users/${userId}/groups`).then((r) => r.data);
 export const setUserGroups = (userId: string, groupIds: string[]) =>
   api.put(`/users/${userId}/groups`, { groupIds });
 
 // Teams (delegated via teams_manage)
-export const getTeams = () =>
-  api.get<Team[]>('/teams').then((r) => r.data);
+export type TeamsPage = { teams: Team[]; total: number; page: number; limit: number };
+export const getTeams = (params?: { page?: number; limit?: number }) =>
+  api.get<TeamsPage>('/teams', { params }).then((r) => r.data);
 export const getTeam = (id: string) =>
   api.get<TeamDetail>(`/teams/${id}`).then((r) => r.data);
 export const createTeam = (data: { name: string }) =>

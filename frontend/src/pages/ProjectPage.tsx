@@ -607,10 +607,11 @@ export default function ProjectPage() {
   const fetchMembersData = async () => {
     const [membersR, teamsR, invitesR, groupsR, usersR] = await Promise.allSettled([
       getProjectMembers(projectId!),
-      getTeams(),
+      // ponytail: dropdowns fetch first 1000 teams/users; add server-side search when lists outgrow that.
+      getTeams({ limit: 1000 }).then((r) => r.teams),
       canManageTeams ? getInvites() : Promise.resolve([] as Invite[]),
       isSuperadmin ? getGroups() : Promise.resolve([] as Group[]),
-      canManageTeams ? getUsers() : Promise.resolve([] as Array<{ id: string; email: string }>)
+      canManageTeams ? getUsers({ limit: 1000 }).then((r) => r.users) : Promise.resolve([] as Array<{ id: string; email: string }>)
     ]);
     return {
       members: settledValue(membersR, []),
