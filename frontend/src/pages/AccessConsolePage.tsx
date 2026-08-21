@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Input, Layout, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Button, Card, Input, Layout, Modal, Select, Space, Spin, Table, Tabs, Tag, Typography, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
@@ -345,6 +345,9 @@ export default function AccessConsolePage() {
         footer={<Button type="primary" onClick={() => setSelectedTeamId(null)}>Close</Button>}
         width={640}
       >
+        {teamDetailQuery.isLoading && (
+          <div style={{ padding: '32px 0', textAlign: 'center' }}><Spin /></div>
+        )}
         {detail && (
           <Space direction="vertical" size={20} style={{ width: '100%' }}>
             <div>

@@ -70,6 +70,7 @@ import {
   createTeam,
   deleteTeam,
   attachTeamToProject,
+  detachTeamFromProject,
   addTeamMember,
   removeTeamMember,
   getInvites,
@@ -1386,6 +1387,17 @@ export default function ProjectPage() {
     }
   };
 
+  const handleDetachTeam = async (teamId: string) => {
+    if (!project) return;
+    try {
+      await detachTeamFromProject(teamId, project.id);
+      message.success('Team detached');
+      await qc.invalidateQueries({ queryKey: [...qk.project(projectId!), 'members-tab'] });
+    } catch (error) {
+      message.error(extractError(error, 'Failed to detach team'));
+    }
+  };
+
   const handleCreateTeam = async () => {
     if (!project || !teamName.trim()) { message.error('Team name is required'); return; }
     setTeamSaving(true);
@@ -1464,6 +1476,16 @@ export default function ProjectPage() {
   const deleteProjectReady = Boolean(
     project && deleteProjectConfirmText.trim() === project.name.trim()
   );
+
+  // Teams attached to this project, derived from members' team tags (the members endpoint only
+  // surfaces teams linked to this project). ponytail: a team attached with zero members won't
+  // appear here — add a dedicated attached-teams field if empty attachments need detaching.
+  const attachedTeams = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    projectMembers.forEach((m) => m.teams.forEach((t) => map.set(t.id, { id: t.id, name: t.name })));
+    return [...map.values()];
+  }, [projectMembers]);
+  const attachedTeamIds = new Set(attachedTeams.map((t) => t.id));
 
   const runSuiteItems = suites.map((suite) => ({
     value: suite.id,
@@ -2789,12 +2811,25 @@ export default function ProjectPage() {
                         Attach an existing team to grant its members access to this project. Create and
                         manage teams globally in the Access console.
                       </Text>
+                      <Space size={4} wrap>
+                        {attachedTeams.length === 0 && <Text type="secondary">No teams attached</Text>}
+                        {attachedTeams.map((t) => (
+                          <Tag
+                            key={t.id}
+                            color="blue"
+                            closable
+                            onClose={(e) => { e.preventDefault(); void handleDetachTeam(t.id); }}
+                          >
+                            {t.name}
+                          </Tag>
+                        ))}
+                      </Space>
                       <Select<string>
                         showSearch
                         style={{ width: '100%', maxWidth: 420 }}
                         placeholder="Attach a team…"
                         value={undefined}
-                        options={teams.map((t) => ({ label: t.name, value: t.id }))}
+                        options={teams.filter((t) => !attachedTeamIds.has(t.id)).map((t) => ({ label: t.name, value: t.id }))}
                         onChange={(teamId) => { if (teamId) void handleAttachExistingTeam(teamId); }}
                         filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                       />

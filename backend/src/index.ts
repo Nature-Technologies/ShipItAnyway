@@ -89,7 +89,7 @@ async function start() {
 
   await fastify.register(cors, {
     origin: frontendOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await fastify.register(fastifyHelmet, {

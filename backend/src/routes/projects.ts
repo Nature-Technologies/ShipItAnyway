@@ -456,7 +456,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
       return {
         ...row,
         groups: groups.map((g) => g.group.name),
-        scopes: [...new Set([...membershipScopes, ...globalScopes])].sort()
+        scopes: [...new Set([...membershipScopes, ...globalScopes])].map(toApiScope).sort()
       };
     }));
   });
