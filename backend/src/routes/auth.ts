@@ -58,7 +58,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       token,
       email: user.email,
       canCreateProject: await canCreateProject(user.id, user.email),
-      isSystemAdmin: await isSuperadmin(user.id)
+      isSuperadmin: await isSuperadmin(user.id)
     };
   });
 
@@ -123,7 +123,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       userId: payload.userId,
       email: payload.email,
       canCreateProject: await canCreateProject(payload.userId, payload.email),
-      isSystemAdmin: await isSuperadmin(payload.userId)
+      isSuperadmin: await isSuperadmin(payload.userId)
     };
   });
 
