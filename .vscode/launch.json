@@ -9,6 +9,7 @@
       "type": "node",
       "request": "attach",
       "preLaunchTask": "docker: debug up",
+      "postDebugTask": "docker: debug down",
       "address": "localhost",
       "port": 9229,
       "restart": true,
