@@ -19,6 +19,7 @@ model Project {
   schedules Schedule[]
   fixtures  Fixture[]
   teams     TeamProject[]
+  reportConfigs ReportConfig[]
 }
 
 model Fixture {
@@ -147,6 +148,7 @@ model Environment {
   tests     Test[]
   runs      TestRun[]
   schedules Schedule[]
+  reportConfigs ReportConfig[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -286,8 +288,62 @@ enum Scope {
   environments_reveal_secrets
   alerts_read
   alerts_edit
+  reports_read
+  reports_edit
   members_read
   teams_manage
   project_manage
   project_delete
+}
+
+model ReportConfig {
+  id            String    @id @default(cuid())
+  name          String
+  projectId     String
+  environmentId String
+  cron          String
+  timezone      String?
+  recipients    Json      @default("[]")
+  checkIds      Json      @default("[]")
+  enabled       Boolean   @default(true)
+  lastSentAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment   Environment  @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  sends         ReportSend[]
+
+  @@index([projectId])
+  @@index([environmentId])
+}
+
+model ReportSend {
+  id             String            @id @default(cuid())
+  reportConfigId String
+  status         ReportSendStatus
+  trigger        ReportSendTrigger
+  windowStart    DateTime
+  windowEnd      DateTime
+  recipients     Json              @default("[]")
+  runCount       Int               @default(0)
+  passed         Int               @default(0)
+  failed         Int               @default(0)
+  passRate       Int               @default(0)
+  avgDurationMs  Int?
+  error          String?
+  createdAt      DateTime          @default(now())
+  reportConfig   ReportConfig      @relation(fields: [reportConfigId], references: [id], onDelete: Cascade)
+
+  @@index([reportConfigId])
+}
+
+enum ReportSendStatus {
+  SENT
+  SKIPPED_EMPTY
+  FAILED
+}
+
+enum ReportSendTrigger {
+  SCHEDULED
+  MANUAL
 }
