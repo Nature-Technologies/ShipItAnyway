@@ -33,6 +33,7 @@ import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
 import { teamRoutes } from './routes/teams';
 import { inviteRoutes } from './routes/invites';
+import { reportRoutes } from './routes/reports';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -221,6 +222,7 @@ async function start() {
   await fastify.register(userRoutes);
   await fastify.register(teamRoutes);
   await fastify.register(inviteRoutes);
+  await fastify.register(reportRoutes);
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();
