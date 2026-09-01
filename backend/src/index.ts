@@ -13,6 +13,8 @@ import { authRoutes } from './routes/auth';
 import { startTestWorker, stopTestWorker } from './queue/worker';
 import { testQueue } from './queue/queue';
 import { startScheduleWorker, stopScheduleWorker, scheduleQueue } from './queue/schedule-queue';
+import { startReportWorker, stopReportWorker, reportQueue } from './queue/report-queue';
+import { reportScheduler } from './services/report-scheduler';
 import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
 import { channelRoutes } from './routes/channels';
@@ -222,6 +224,8 @@ async function start() {
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();
+  startReportWorker();
+  await reportScheduler.loadAll();
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
 
@@ -260,6 +264,8 @@ async function start() {
       await testQueue.close();
       await stopScheduleWorker();
       await scheduleQueue.close();
+      await stopReportWorker();
+      await reportQueue.close();
       await redis.quit();
       process.exit(0);
     } catch (error) {
