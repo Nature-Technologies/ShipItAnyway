@@ -4,7 +4,7 @@ import prisma from '../prisma';
 import { CreateTestSchema, StepSchema, UpdateTestSchema } from '../schemas/test.schema';
 import { runValidationInSubprocess } from '../services/validation-runner';
 import { getAvailableDevices } from '../utils/devices';
-import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
 
 const urlOrTemplate = z.string().refine((value) => {
   if (value.includes('{{')) return true;
@@ -25,8 +25,9 @@ const ValidateStepsSchema = z.object({
   device: z.string().optional()
 });
 
-function normalizeDevice(device?: string) {
+function normalizeDevice(device?: string | null) {
   if (device === undefined) return undefined;
+  if (device === null) return null;
   const trimmed = device.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
@@ -42,7 +43,7 @@ export async function testRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/tests', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
+      await requireScope(req.params.projectId, userId, 'checks_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -63,7 +64,7 @@ export async function testRoutes(fastify: FastifyInstance) {
     if (!test) return reply.status(404).send({ error: 'Test not found' });
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
+      await requireScope(test.projectId, userId, 'checks_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -84,7 +85,7 @@ export async function testRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(req.params.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -131,7 +132,7 @@ export async function testRoutes(fastify: FastifyInstance) {
       if (!test) return reply.status(404).send({ error: 'Test not found' });
 
       const { userId } = getAuthUser(req);
-      await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(test.projectId, userId, 'checks_edit');
 
       await prisma.test.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
@@ -148,7 +149,7 @@ export async function testRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(result.data.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(result.data.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

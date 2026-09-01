@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Button, Descriptions, Dropdown, Form, Input, Modal, Space, Tag, Typography, message } from 'antd';
-import { InfoCircleOutlined, LogoutOutlined, ProfileOutlined, UserOutlined } from '@ant-design/icons';
+import { InfoCircleOutlined, LogoutOutlined, ProfileOutlined, SafetyOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -35,7 +35,7 @@ function getApiErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function UserMenu() {
-  const { email, logout, changePassword } = useAuth();
+  const { email, logout, changePassword, isSuperadmin, canManageTeams } = useAuth();
   const navigate = useNavigate();
   const [aboutOpen, setAboutOpen] = useState(false);
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
@@ -162,13 +162,17 @@ export default function UserMenu() {
             { key: 'about', icon: <InfoCircleOutlined />, label: 'About ShipItAnyway' },
             { key: 'release-notes', icon: <ProfileOutlined />, label: 'Release notes' },
             { key: 'change-password', icon: <UserOutlined />, label: 'Change password' },
-            { type: 'divider' },
+            ...(isSuperadmin || canManageTeams
+              ? [{ key: 'access', icon: <SafetyOutlined />, label: 'Access console' }]
+              : []),
+            { type: 'divider' as const },
             { key: 'logout', icon: <LogoutOutlined />, label: 'Logout', danger: true }
           ],
           onClick: ({ key }) => {
             if (key === 'about') setAboutOpen(true);
             if (key === 'release-notes') setReleaseNotesOpen(true);
             if (key === 'change-password') setChangeOpen(true);
+            if (key === 'access') navigate('/access');
             if (key === 'logout') handleLogout();
           }
         }}

@@ -3,6 +3,7 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import prisma from '../src/prisma';
+import { joinProject } from './helpers/rbac';
 import { fixtureRoutes } from '../src/routes/fixtures';
 
 async function buildApp(userId: string, email: string) {
@@ -30,15 +31,7 @@ async function createProjectAccess() {
     data: { name: `Fixtures ${suffix}` }
   });
 
-  await prisma.projectMember.create({
-    data: {
-      projectId: project.id,
-      userId: user.id,
-      email: user.email,
-      role: 'OWNER',
-      status: 'ACTIVE'
-    }
-  });
+  await joinProject(project.id, user.id);
 
   return { user, project };
 }

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Card, Col, Dropdown, Layout, Modal, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { AppstoreOutlined, EllipsisOutlined, FileTextOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { createSchedule, deleteSchedule, getEnvironments, getProject, getSchedules, getSuites, runSchedule, updateSchedule } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
@@ -106,37 +108,51 @@ function getScheduleTargetSummary(schedule: Schedule) {
 export default function SchedulesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [project, setProject] = useState<ProjectWorkspace | null>(null);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [suites, setSuites] = useState<Suite[]>([]);
-  const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const enabled = Boolean(projectId);
+  const projectQuery = useQuery({
+    queryKey: qk.project(projectId!),
+    queryFn: () => getProject(projectId!),
+    enabled
+  });
+  const schedulesQuery = useQuery({
+    queryKey: qk.projectSchedules(projectId!),
+    queryFn: () => getSchedules(projectId!),
+    enabled
+  });
+  const suitesQuery = useQuery({
+    queryKey: qk.projectSuites(projectId!),
+    queryFn: () => getSuites(projectId!),
+    enabled
+  });
+  const environmentsQuery = useQuery({
+    queryKey: qk.projectEnvironments(projectId!),
+    queryFn: () => getEnvironments(projectId!),
+    enabled
+  });
+  const project: ProjectWorkspace | null = projectQuery.data ?? null;
+  const schedules: Schedule[] = schedulesQuery.data ?? [];
+  const suites: Suite[] = suitesQuery.data ?? [];
+  const environments: Environment[] = environmentsQuery.data ?? [];
+  const loading =
+    projectQuery.isLoading || schedulesQuery.isLoading || suitesQuery.isLoading || environmentsQuery.isLoading;
   const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [scheduleMode, setScheduleMode] = useState<'create' | 'edit'>('create');
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [projectData, scheduleData, suiteData, environmentData] = await Promise.all([
-        getProject(projectId!),
-        getSchedules(projectId!),
-        getSuites(projectId!),
-        getEnvironments(projectId!)
-      ]);
-      setProject(projectData);
-      setSchedules(scheduleData);
-      setSuites(suiteData);
-      setEnvironments(environmentData);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [projectId]);
+  const invalidateSchedules = () => qc.invalidateQueries({ queryKey: qk.projectSchedules(projectId!) });
+  const createMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof createSchedule>[1]) => createSchedule(projectId!, payload),
+    onSuccess: invalidateSchedules
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateSchedule>[1] }) =>
+      updateSchedule(id, payload),
+    onSuccess: invalidateSchedules
+  });
+  const deleteMutation = useMutation({ mutationFn: deleteSchedule, onSuccess: invalidateSchedules });
+  const runMutation = useMutation({ mutationFn: runSchedule });
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   const projectTests = project?.tests ?? [];
 
@@ -160,7 +176,7 @@ export default function SchedulesPage() {
 
   const runScheduleNow = async (schedule: Schedule) => {
     try {
-      await runSchedule(schedule.id);
+      await runMutation.mutateAsync(schedule.id);
       message.success('Schedule run started');
       navigate(`/schedules/${schedule.id}/history`);
     } catch {
@@ -169,40 +185,32 @@ export default function SchedulesPage() {
   };
 
   const handleSubmit = async (payload: SchedulePayload) => {
-    setSaving(true);
-    try {
-      if (scheduleMode === 'edit' && editingSchedule) {
-        await updateSchedule(editingSchedule.id, payload);
-        message.success('Schedule updated');
-      } else {
-        await createSchedule(projectId!, {
-          name: payload.name,
-          cron: payload.cron,
-          timezone: payload.timezone,
-          suiteId: payload.suiteId ?? undefined,
-          testId: payload.testId ?? undefined,
-          environmentId: payload.environmentId ?? undefined,
-          enabled: payload.enabled
-        });
-        message.success('Schedule created');
-      }
-      setModalOpen(false);
-      await load();
-    } finally {
-      setSaving(false);
+    if (scheduleMode === 'edit' && editingSchedule) {
+      await updateMutation.mutateAsync({ id: editingSchedule.id, payload });
+      message.success('Schedule updated');
+    } else {
+      await createMutation.mutateAsync({
+        name: payload.name,
+        cron: payload.cron,
+        timezone: payload.timezone,
+        suiteId: payload.suiteId ?? undefined,
+        testId: payload.testId ?? undefined,
+        environmentId: payload.environmentId ?? undefined,
+        enabled: payload.enabled
+      });
+      message.success('Schedule created');
     }
+    setModalOpen(false);
   };
 
   const handleDelete = async (id: string) => {
-    await deleteSchedule(id);
+    await deleteMutation.mutateAsync(id);
     message.success('Schedule deleted');
-    await load();
   };
 
   const handleToggleEnabled = async (schedule: Schedule) => {
-    await updateSchedule(schedule.id, { enabled: !schedule.enabled });
+    await updateMutation.mutateAsync({ id: schedule.id, payload: { enabled: !schedule.enabled } });
     message.success(schedule.enabled ? 'Schedule paused' : 'Schedule resumed');
-    await load();
   };
 
   return (

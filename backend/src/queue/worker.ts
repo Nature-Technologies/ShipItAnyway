@@ -62,7 +62,10 @@ async function runSingleTargetAction(
   }
 
   const preferred = await waitForUniqueSelector(page, step.selector);
-  if (preferred.count === 1) {
+  // Try the recorded selector whenever it is not ambiguous (0 or 1 match). count===0 covers
+  // targets that appear late (e.g. autocomplete dropdowns fetched over the network): the action's
+  // own 10s auto-wait handles appearance, so don't pre-reject on the 2s existence poll.
+  if (preferred.count <= 1) {
     try {
       const locator = resolveLocator(page, step.selector);
       switch (action) {
@@ -84,9 +87,13 @@ async function runSingleTargetAction(
       }
       return;
     } catch (error) {
-      throw new Error(
-        `${action} failed for step ${index + 1}. Unique selector found: ${step.selector}. ${summarizePlaywrightError(error)}`
-      );
+      // A confirmed unique match that fails to act is a real failure — surface it.
+      // A speculative (count===0) attempt that fails just falls through to candidate selectors.
+      if (preferred.count === 1) {
+        throw new Error(
+          `${action} failed for step ${index + 1}. Unique selector found: ${step.selector}. ${summarizePlaywrightError(error)}`
+        );
+      }
     }
   }
 

@@ -8,7 +8,8 @@ interface AuthContextType {
   token: string | null;
   email: string | null;
   canCreateProject: boolean;
-  isSystemAdmin: boolean;
+  isSuperadmin: boolean;
+  canManageTeams: boolean;
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -21,7 +22,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [email, setEmail] = useState<string | null>(() => localStorage.getItem(EMAIL_KEY));
   const [canCreateProject, setCanCreateProject] = useState(false);
-  const [isSystemAdmin, setIsSystemAdmin] = useState(false);
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [canManageTeams, setCanManageTeams] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -62,23 +64,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const { data } = await api.get<{ userId: string; email: string; canCreateProject: boolean; isSystemAdmin: boolean }>('/auth/me');
+        const { data } = await api.get<{ userId: string; email: string; canCreateProject: boolean; isSuperadmin: boolean; canManageTeams: boolean }>('/auth/me');
         if (!cancelled && data.email && data.email !== email) {
           localStorage.setItem(EMAIL_KEY, data.email);
           setEmail(data.email);
         }
         if (!cancelled) {
           setCanCreateProject(Boolean(data.canCreateProject));
-          setIsSystemAdmin(Boolean(data.isSystemAdmin));
+          setIsSuperadmin(Boolean(data.isSuperadmin));
+          setCanManageTeams(Boolean(data.canManageTeams));
         }
-      } catch {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(EMAIL_KEY);
-        if (!cancelled) {
-          setToken(null);
-          setEmail(null);
-          setCanCreateProject(false);
-          setIsSystemAdmin(false);
+      } catch (err) {
+        // Only a real auth failure (401) invalidates the session. Transient errors
+        // — rate limits (429), 5xx, network blips — must NOT wipe the token, or a
+        // request burst (e.g. duplicating a signed-in tab) logs the user out of every
+        // tab via shared localStorage and blocks re-login while the window is open.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(EMAIL_KEY);
+          if (!cancelled) {
+            setToken(null);
+            setEmail(null);
+            setCanCreateProject(false);
+            setIsSuperadmin(false);
+            setCanManageTeams(false);
+          }
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -93,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (nextEmail: string, password: string) => {
-    const { data } = await api.post<{ token: string; email: string; canCreateProject: boolean; isSystemAdmin: boolean }>('/auth/login', {
+    const { data } = await api.post<{ token: string; email: string; canCreateProject: boolean; isSuperadmin: boolean; canManageTeams: boolean }>('/auth/login', {
       email: nextEmail,
       password
     });
@@ -103,7 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(data.token);
     setEmail(data.email);
     setCanCreateProject(Boolean(data.canCreateProject));
-    setIsSystemAdmin(Boolean(data.isSystemAdmin));
+    setIsSuperadmin(Boolean(data.isSuperadmin));
+    setCanManageTeams(Boolean(data.canManageTeams));
     setReady(true);
   };
 
@@ -113,7 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setEmail(null);
     setCanCreateProject(false);
-    setIsSystemAdmin(false);
+    setIsSuperadmin(false);
+    setCanManageTeams(false);
   };
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
@@ -124,12 +137,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     token,
     email,
     canCreateProject,
-    isSystemAdmin,
+    isSuperadmin,
+    canManageTeams,
     ready,
     login,
     logout,
     changePassword
-  }), [token, email, canCreateProject, isSystemAdmin, ready]);
+  }), [token, email, canCreateProject, isSuperadmin, canManageTeams, ready]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

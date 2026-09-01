@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Layout, Row, Skeleton, Space, Table, Typography } from 'antd';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getRunBatch } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppFooter from '../components/AppFooter';
 import AppHeader from '../components/AppHeader';
 import RunStatusBadge from '../components/RunStatusBadge';
@@ -50,56 +52,30 @@ function formatProgress(run: TestRunBatch['runs'][number]) {
 export default function RunBatchResultPage() {
   const navigate = useNavigate();
   const { batchId } = useParams<{ batchId: string }>();
-  const [batch, setBatch] = useState<TestRunBatch | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!batchId) return undefined;
+  const batchQuery = useQuery({
+    queryKey: qk.runBatch(batchId ?? ''),
+    queryFn: () => getRunBatch(batchId as string),
+    enabled: Boolean(batchId),
+    // Poll every 2s while the batch is still running; stop once it reaches a terminal status.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data && isRunBatchTerminal(data.status) ? false : 2000;
+    }
+  });
 
-    let interval: ReturnType<typeof setInterval> | undefined;
-    let cancelled = false;
-
-    const poll = async () => {
-      try {
-        const data = await getRunBatch(batchId);
-        if (cancelled) return;
-        setBatch(data);
-        setError(null);
-        setLoading(false);
-
-        if (isRunBatchTerminal(data.status) && interval) {
-          clearInterval(interval);
-          interval = undefined;
-        }
-      } catch (requestError: any) {
-        if (cancelled) return;
-        const status = requestError?.response?.status;
-        setError(
-          status === 404
-            ? 'Run batch was not found.'
-            : status === 403
-              ? 'You do not have access to this run batch.'
-              : 'Run batch could not be loaded.'
-        );
-        setLoading(false);
-        if (interval) {
-          clearInterval(interval);
-          interval = undefined;
-        }
-      }
-    };
-
-    void poll();
-    interval = setInterval(() => {
-      void poll();
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [batchId]);
+  const batch = batchQuery.data ?? null;
+  const loading = batchQuery.isLoading;
+  const error = batchQuery.isError
+    ? (() => {
+        const status = (batchQuery.error as any)?.response?.status;
+        return status === 404
+          ? 'Run batch was not found.'
+          : status === 403
+            ? 'You do not have access to this run batch.'
+            : 'Run batch could not be loaded.';
+      })()
+    : null;
 
   const durationMs = useMemo(() => (batch ? getRunBatchDurationMs(batch) : null), [batch]);
 

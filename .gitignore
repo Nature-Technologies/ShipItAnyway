@@ -29,7 +29,6 @@ Thumbs.db
 
 # IDE
 .idea/
-.vscode/
 *.swp
 
 # Playwright MCP artifacts

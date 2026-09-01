@@ -27,6 +27,10 @@ import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
 import { fixtureRoutes } from './routes/fixtures';
+import { groupRoutes } from './routes/groups';
+import { userRoutes } from './routes/users';
+import { teamRoutes } from './routes/teams';
+import { inviteRoutes } from './routes/invites';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -85,7 +89,7 @@ async function start() {
 
   await fastify.register(cors, {
     origin: frontendOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await fastify.register(fastifyHelmet, {
@@ -106,6 +110,8 @@ async function start() {
     const publicRoutes = [
       { method: 'POST', url: '/auth/login' },
       { method: 'POST', url: '/auth/logout' },
+      { method: 'GET', url: '/auth/invite' },
+      { method: 'POST', url: '/auth/accept-invite' },
       { method: 'GET', url: '/health' },
       { method: 'GET', url: '/health/db' },
       { method: 'POST', url: '/webhooks/trigger' },
@@ -209,6 +215,10 @@ async function start() {
   await fastify.register(webhookRoutes);
   await fastify.register(recordingRoutes);
   await fastify.register(fixtureRoutes);
+  await fastify.register(groupRoutes);
+  await fastify.register(userRoutes);
+  await fastify.register(teamRoutes);
+  await fastify.register(inviteRoutes);
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();

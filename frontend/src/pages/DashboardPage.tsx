@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Card, Col, Layout, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
@@ -7,13 +8,11 @@ import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
 import RunStatusBadge from '../components/RunStatusBadge';
 import { getDashboard, getProjects, runTest, runTestWithEnvironment } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import type {
-  DashboardChartPoint,
   DashboardFlakyCheck,
   DashboardIssue,
-  DashboardRecentRun,
-  DashboardResponse,
-  ProjectSummary
+  DashboardRecentRun
 } from '../types';
 import {
   Area,
@@ -112,21 +111,25 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [days, setDays] = useState(30);
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
-  const [reloadTick, setReloadTick] = useState(0);
-  const [data, setData] = useState<DashboardResponse | null>(null);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [rerunning, setRerunning] = useState<string | null>(null);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([getProjects(), getDashboard(days, projectId)])
-      .then(([projectResponse, dashboardResponse]) => {
-        setProjects(projectResponse);
-        setData(dashboardResponse);
-      })
-      .finally(() => setLoading(false));
-  }, [days, projectId, reloadTick]);
+  const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: getProjects });
+  const dashboardQuery = useQuery({
+    queryKey: qk.dashboard(days, projectId),
+    queryFn: () => getDashboard(days, projectId)
+  });
+
+  const projects = projectsQuery.data ?? [];
+  const data = dashboardQuery.data ?? null;
+  const loading = projectsQuery.isLoading || dashboardQuery.isLoading;
+
+  const rerunMutation = useMutation({
+    mutationFn: (row: DashboardRecentRun | DashboardIssue) =>
+      row.environmentId
+        ? runTestWithEnvironment(row.testId, row.environmentId)
+        : runTest(row.testId),
+    onSuccess: (result) => navigate(`/runs/${result.testRunId}`)
+  });
+  const rerunningId = rerunMutation.isPending ? rerunMutation.variables?.testId : null;
 
   const projectOptions = useMemo(
     () => [
@@ -139,18 +142,6 @@ export default function DashboardPage() {
   const handleOpenRun = (runId: string) => navigate(`/runs/${runId}`);
   const handleOpenCheck = (testId: string) => navigate(`/tests/${testId}/edit`);
   const handleOpenRuns = () => navigate('/runs');
-
-  const handleRerun = async (row: DashboardRecentRun | DashboardIssue) => {
-    setRerunning(row.testId);
-    try {
-      const result = row.environmentId
-        ? await runTestWithEnvironment(row.testId, row.environmentId)
-        : await runTest(row.testId);
-      navigate(`/runs/${result.testRunId}`);
-    } finally {
-      setRerunning(null);
-    }
-  };
 
   const activeIssues = data?.activeIssues ?? [];
   const activeFailures = activeIssues.filter((issue) => issue.latestRunStatus === 'FAILED');
@@ -315,7 +306,7 @@ export default function DashboardPage() {
                               <Button size="small" onClick={() => handleOpenRun(row.latestFailedRunId)}>
                                 Open result
                               </Button>
-                              <Button size="small" onClick={() => void handleRerun(row)} loading={rerunning === row.testId}>
+                              <Button size="small" onClick={() => rerunMutation.mutate(row)} loading={rerunningId === row.testId}>
                                 Rerun
                               </Button>
                               <Button size="small" onClick={() => handleOpenCheck(row.testId)}>
@@ -351,7 +342,7 @@ export default function DashboardPage() {
                       title="Recent runs could not be loaded"
                       description="The dashboard has run data, but the recent runs list is temporarily unavailable."
                       actions={
-                        <Button onClick={() => setReloadTick((current) => current + 1)} type="primary">
+                        <Button onClick={() => void dashboardQuery.refetch()} type="primary">
                           Refresh
                         </Button>
                       }

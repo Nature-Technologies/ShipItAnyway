@@ -3,11 +3,15 @@ import type {
   DashboardResponse,
   Environment,
   Fixture,
+  Group,
+  Invite,
   NotificationChannel,
   NotificationChannelType,
   PageView,
   Project,
   ProjectMember,
+  Team,
+  TeamDetail,
   ProjectWorkspace,
   ProjectSummary,
   Schedule,
@@ -31,7 +35,8 @@ export type TestPayload = {
 };
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000'
+  // optional-chain so the module also imports under node/tsx tests where import.meta.env is absent
+  baseURL: (import.meta as { env?: Record<string, string> }).env?.VITE_BACKEND_URL ?? 'http://localhost:3000'
 });
 
 export const getProjects = () =>
@@ -87,24 +92,58 @@ export const getProject = (id: string) =>
 export const getProjectMembers = (projectId: string) =>
   api.get<ProjectMember[]>(`/projects/${projectId}/members`).then((r) => r.data);
 
+export const getProjectTeams = (projectId: string) =>
+  api.get<{ id: string; name: string }[]>(`/projects/${projectId}/teams`).then((r) => r.data);
+
 export const checkUserExists = (email: string) =>
   api.get<{ exists: boolean }>('/users/exists', {
     params: { email }
   }).then((r) => r.data);
 
-export const addProjectMember = (
-  projectId: string,
-  data: { email: string; password?: string; role: ProjectMember['role'] }
-) => api.post<ProjectMember>(`/projects/${projectId}/members`, data).then((r) => r.data);
+// Groups (superadmin)
+export const getGroups = () => api.get<Group[]>('/groups').then((r) => r.data);
+export const createGroup = (data: { name: string; scopes: string[] }) =>
+  api.post<Group>('/groups', data).then((r) => r.data);
+export const updateGroup = (id: string, data: Partial<{ name: string; scopes: string[] }>) =>
+  api.patch<Group>(`/groups/${id}`, data).then((r) => r.data);
+export const deleteGroup = (id: string) => api.delete(`/groups/${id}`);
 
-export const updateProjectMember = (
-  projectId: string,
-  memberId: string,
-  data: { role: ProjectMember['role'] }
-) => api.patch<ProjectMember>(`/projects/${projectId}/members/${memberId}`, data).then((r) => r.data);
+// Users + global group assignment (superadmin)
+export type UserWithGroups = { id: string; email: string; groups: Group[] };
+export type UsersPage = { users: UserWithGroups[]; total: number; page: number; limit: number };
+export const getUsers = (params?: { page?: number; limit?: number }) =>
+  api.get<UsersPage>('/users', { params }).then((r) => r.data);
+export const getUserGroups = (userId: string) =>
+  api.get<Group[]>(`/users/${userId}/groups`).then((r) => r.data);
+export const setUserGroups = (userId: string, groupIds: string[]) =>
+  api.put(`/users/${userId}/groups`, { groupIds });
 
-export const deleteProjectMember = (projectId: string, memberId: string) =>
-  api.delete(`/projects/${projectId}/members/${memberId}`);
+// Teams (delegated via teams_manage)
+export type TeamsPage = { teams: Team[]; total: number; page: number; limit: number };
+export const getTeams = (params?: { page?: number; limit?: number }) =>
+  api.get<TeamsPage>('/teams', { params }).then((r) => r.data);
+export const getTeam = (id: string) =>
+  api.get<TeamDetail>(`/teams/${id}`).then((r) => r.data);
+export const createTeam = (data: { name: string }) =>
+  api.post<Team>('/teams', data).then((r) => r.data);
+export const updateTeam = (id: string, data: { name: string }) =>
+  api.patch<Team>(`/teams/${id}`, data).then((r) => r.data);
+export const deleteTeam = (id: string) => api.delete(`/teams/${id}`);
+export const attachTeamToProject = (teamId: string, projectId: string) =>
+  api.post(`/teams/${teamId}/projects`, { projectId });
+export const detachTeamFromProject = (teamId: string, projectId: string) =>
+  api.delete(`/teams/${teamId}/projects/${projectId}`);
+export const addTeamMember = (teamId: string, userId: string) =>
+  api.post(`/teams/${teamId}/members`, { userId });
+export const removeTeamMember = (teamId: string, userId: string) =>
+  api.delete(`/teams/${teamId}/members/${userId}`);
+
+// Invites (2.4)
+export const getInvites = () =>
+  api.get<Invite[]>('/invites').then((r) => r.data);
+export const createInvite = (data: { email: string; teamId?: string; groupId?: string }) =>
+  api.post<Invite>('/invites', data).then((r) => r.data);
+export const revokeInvite = (id: string) => api.delete(`/invites/${id}`);
 
 export const getDevices = () =>
   api.get<{ label: string; value: string }[]>('/devices').then((r) => r.data);
@@ -338,3 +377,9 @@ export const uploadFixture = (projectId: string, file: File) => {
 
 export const listFixtures = (projectId: string) =>
   api.get<{ fixtures: Fixture[] }>(`/projects/${projectId}/fixtures`).then((r) => r.data.fixtures);
+
+export const validateInvite = (token: string) =>
+  api.get<{ email: string }>('/auth/invite', { params: { token } }).then((r) => r.data);
+
+export const acceptInvite = (token: string, password: string) =>
+  api.post<{ ok: true }>('/auth/accept-invite', { token, password }).then((r) => r.data);

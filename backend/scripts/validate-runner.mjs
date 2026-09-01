@@ -374,6 +374,27 @@ async function validateSteps(url, steps, device) {
         continue;
       }
 
+      // Wait briefly for the primary selector to appear before counting. Elements that load
+      // asynchronously (e.g. autocomplete/search-suggestion dropdowns after a fill) are absent
+      // the instant this step begins; without this the count is 0 and the step is wrongly
+      // reported "not found". Breaks as soon as the element exists, so present elements add no delay.
+      try {
+        const primaryLocator = resolveLocator(page, step.selector);
+        const waitStart = Date.now();
+        while (Date.now() - waitStart <= 5000) {
+          let liveCount = 0;
+          try {
+            liveCount = await primaryLocator.count();
+          } catch {
+            liveCount = 0;
+          }
+          if (liveCount >= 1) break;
+          await page.waitForTimeout(100);
+        }
+      } catch {
+        // ignore — fall through to the normal counting/reporting below
+      }
+
       const candidates = dedupe([
         step.selector,
         ...(step.selectorCandidates ?? []),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import prisma from '../prisma';
 import { interpolate } from '../utils/interpolate';
 import { getRecordingStatus, startRecording, stopRecording } from '../services/recorder';
-import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
 import {
   startDrivenSession, performDrivenAction, observeDrivenSession, stopDrivenSession,
   getDrivenSession, DrivenActionError
@@ -27,7 +27,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
     const { userId } = getAuthUser(req);
 
     try {
-      await requireProjectRole(result.data.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(result.data.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -72,7 +72,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
     if (!status) return reply.status(404).send({ error: 'Session not found' });
 
     try {
-      await requireProjectRole(status.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(status.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -93,7 +93,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(status.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(status.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -108,7 +108,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
       const { projectId, url, device } = result.data;
       const { userId } = getAuthUser(req);
       try {
-        await requireProjectRole(projectId, userId, ['OWNER', 'EDITOR']);
+        await requireScope(projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }
@@ -121,7 +121,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
       if (!session) return reply.code(404).send({ error: 'Session not found' });
       const { userId } = getAuthUser(req);
       try {
-        await requireProjectRole(session.projectId, userId, ['OWNER', 'EDITOR']);
+        await requireScope(session.projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }
@@ -141,7 +141,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
       if (!session) return reply.code(404).send({ error: 'Session not found' });
       const { userId } = getAuthUser(req);
       try {
-        await requireProjectRole(session.projectId, userId, ['OWNER', 'EDITOR']);
+        await requireScope(session.projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }
@@ -154,7 +154,7 @@ export async function recordingRoutes(fastify: FastifyInstance) {
       if (!session) return reply.code(404).send({ error: 'Session not found' });
       const { userId } = getAuthUser(req);
       try {
-        await requireProjectRole(session.projectId, userId, ['OWNER', 'EDITOR']);
+        await requireScope(session.projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }

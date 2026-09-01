@@ -5,7 +5,7 @@ import type { Step } from '../types/step';
 import { exportToSpec } from '../services/exporter';
 import { buildPlaywrightProjectZip } from '../services/project-export';
 import { parsePlaywrightSpec } from '../services/importer';
-import { getAuthUser, getProjectAccessStatusCode, requireProjectRole } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
 
 const ImportSchema = z.object({
   code: z.string().min(1),
@@ -44,7 +44,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
 
       const { userId } = getAuthUser(req);
       try {
-        await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR']);
+        await requireScope(test.projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }
@@ -96,7 +96,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(test.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(test.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Checkbox, Col, Form, Input, Layout, Modal, Popconfirm, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { CheckOutlined, DeleteOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import { Link, useParams } from 'react-router-dom';
 import { createChannel, deleteChannel, getChannels, getProject, testChannel } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
@@ -22,31 +24,33 @@ type ChannelFormValues = {
 
 export default function NotificationsPage() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [project, setProject] = useState<Project | null>(null);
-  const [channels, setChannels] = useState<NotificationChannel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const projectQuery = useQuery({
+    queryKey: qk.project(projectId!),
+    queryFn: () => getProject(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const channelsQuery = useQuery({
+    queryKey: qk.projectChannels(projectId!),
+    queryFn: () => getChannels(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const project: Project | null = projectQuery.data ?? null;
+  const channels: NotificationChannel[] = channelsQuery.data ?? [];
+  const loading = projectQuery.isLoading || channelsQuery.isLoading;
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<NotificationChannelType>('telegram');
-  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<ChannelFormValues>();
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [projectData, channelData] = await Promise.all([
-        getProject(projectId!),
-        getChannels(projectId!)
-      ]);
-      setProject(projectData);
-      setChannels(channelData);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [projectId]);
+  const invalidateChannels = () =>
+    qc.invalidateQueries({ queryKey: qk.projectChannels(projectId!) });
+  const createMutation = useMutation({
+    mutationFn: (payload: Parameters<typeof createChannel>[1]) => createChannel(projectId!, payload),
+    onSuccess: invalidateChannels
+  });
+  const deleteMutation = useMutation({ mutationFn: deleteChannel, onSuccess: invalidateChannels });
+  const testMutation = useMutation({ mutationFn: testChannel });
+  const submitting = createMutation.isPending;
 
   const openCreate = (type: NotificationChannelType) => {
     setModalType(type);
@@ -63,34 +67,27 @@ export default function NotificationsPage() {
 
   const handleCreate = async () => {
     const values = await form.validateFields();
-    setSubmitting(true);
-    try {
-      await createChannel(projectId!, {
-        type: modalType,
-        name: values.name,
-        config: values.config,
-        onFailed: values.onFailed ?? true,
-        onRecovered: values.onRecovered ?? true,
-        onPassed: values.onPassed ?? false,
-        enabled: values.enabled ?? true
-      });
-      message.success('Channel created');
-      setModalOpen(false);
-      await load();
-    } finally {
-      setSubmitting(false);
-    }
+    await createMutation.mutateAsync({
+      type: modalType,
+      name: values.name,
+      config: values.config,
+      onFailed: values.onFailed ?? true,
+      onRecovered: values.onRecovered ?? true,
+      onPassed: values.onPassed ?? false,
+      enabled: values.enabled ?? true
+    });
+    message.success('Channel created');
+    setModalOpen(false);
   };
 
   const handleTest = async (id: string) => {
-    await testChannel(id);
+    await testMutation.mutateAsync(id);
     message.success('Test notification sent');
   };
 
   const handleDelete = async (id: string) => {
-    await deleteChannel(id);
+    await deleteMutation.mutateAsync(id);
     message.success('Channel deleted');
-    await load();
   };
 
   return (

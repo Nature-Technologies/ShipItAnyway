@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Build + start the debug stack detached, block until healthy, then let
+      // the debugger attach. Reads env from the repo .env automatically.
+      "label": "docker: debug up",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d --build --wait",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "docker: debug down",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.yml -f docker-compose.debug.yml down",
+      "problemMatcher": []
+    }
+  ]
+}

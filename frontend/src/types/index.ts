@@ -1,3 +1,6 @@
+import type { Scope } from '../utils/scopes';
+export type { Scope };
+
 export type RunStatus = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED';
 
 export type StepAction =
@@ -107,26 +110,49 @@ export interface ProjectWorkspace extends Project {
   summary: ProjectWorkspaceSummary;
   tests: ProjectCheck[];
   suites?: Array<Suite & { schedules: ProjectCheckSchedule[] }>;
-  currentUserRole?: ProjectRole;
+  currentUserScopes?: string[]; // API `resource:action` form
   members?: ProjectMember[];
 }
 
 export type ProjectHealth = 'passing' | 'failing' | 'flaky' | 'no_runs';
 
-export type ProjectRole = 'OWNER' | 'EDITOR' | 'VIEWER';
-export type ProjectMemberStatus = 'ACTIVE' | 'PENDING';
+export interface Group {
+  id: string;
+  name: string;
+  isSystem: boolean;
+  isGlobal: boolean;
+  scopes: string[]; // full catalog, `resource:action` form
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  memberCount?: number;
+  projectCount?: number;
+}
+
+export interface TeamDetail {
+  id: string;
+  name: string;
+  members: Array<{ userId: string; email: string }>;
+  projects: Array<{ projectId: string; name: string }>;
+}
 
 export interface ProjectMember {
-  id: string;
-  projectId: string;
-  userId?: string | null;
+  userId: string;
   email: string;
-  role: ProjectRole;
-  status: ProjectMemberStatus;
+  teams: Team[];
+  groups: string[];
+  scopes: string[];
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  teamId: string | null;
+  groupId: string | null;
+  status: 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
   createdAt: string;
-  updatedAt: string;
-  user?: { email: string } | null;
-  isSystemAdmin?: boolean;
 }
 
 export interface ProjectSummary {
@@ -134,7 +160,6 @@ export interface ProjectSummary {
   name: string;
   createdAt: string;
   updatedAt: string;
-  currentUserRole?: ProjectRole | null;
   checksCount: number;
   activeSchedulesCount: number;
   alertChannelsCount: number;

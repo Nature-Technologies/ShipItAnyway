@@ -6,7 +6,8 @@ import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig(({ mode }) => {
-  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const frontendDir = path.dirname(fileURLToPath(import.meta.url));
+  const rootDir = path.resolve(frontendDir, '..');
   const env = loadEnv(mode, rootDir, '');
   const frontendPort = Number(env.FRONTEND_PORT ?? 5173);
   const backendUrl = env.VITE_BACKEND_URL ?? `http://localhost:${env.BACKEND_PORT ?? 3000}`;
@@ -27,6 +28,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     envDir: rootDir,
+    resolve: {
+      alias: {
+        '@': path.join(frontendDir, 'src')
+      }
+    },
     plugins: [react()],
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
@@ -36,6 +42,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: frontendPort,
+      host: true,
+      // Bind mounts on Windows/macOS don't emit inotify events; poll so HMR sees host edits.
+      watch: env.VITE_USE_POLLING ? { usePolling: true } : undefined,
       proxy: {
         '/api': {
           target: backendUrl,

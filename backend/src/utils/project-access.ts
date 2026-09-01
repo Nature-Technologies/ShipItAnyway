@@ -1,25 +1,97 @@
 import type { FastifyRequest } from 'fastify';
-import type { ProjectMember, ProjectMemberStatus, ProjectRole } from '@prisma/client';
+import { Scope } from '@prisma/client';
 import prisma from '../prisma';
 import { FALLBACK_ADMIN_EMAIL } from '../constants/admin';
+
+export { Scope };
 
 export type AuthUser = {
   userId: string;
   email: string;
 };
 
-export type ProjectAccess = {
-  project: { id: string; name: string };
-  member: ProjectMember;
-};
-
 export type ProjectAccessError = Error & { statusCode?: number };
 
-const ROLE_RANK: Record<ProjectRole, number> = {
-  OWNER: 3,
-  EDITOR: 2,
-  VIEWER: 1
-};
+export async function memberOf(userId: string, projectId: string): Promise<boolean> {
+  const hit = await prisma.teamMember.findFirst({
+    where: { userId, team: { projects: { some: { projectId } } } },
+    select: { teamId: true }
+  });
+  return Boolean(hit);
+}
+
+export async function resolveUserScopes(userId: string): Promise<{ membershipScopes: Set<Scope>; globalScopes: Set<Scope> }> {
+  const rows = await prisma.userGroup.findMany({
+    where: { userId },
+    select: { group: { select: { isGlobal: true, scopes: { select: { scope: true } } } } }
+  });
+  const membershipScopes = new Set<Scope>();
+  const globalScopes = new Set<Scope>();
+  for (const { group } of rows) {
+    for (const { scope } of group.scopes) (group.isGlobal ? globalScopes : membershipScopes).add(scope);
+  }
+  return { membershipScopes, globalScopes };
+}
+
+// Effective scopes on a project = global group scopes ∪ (member of the project ? membership scopes : ∅).
+export async function resolveScopes(userId: string, projectId: string): Promise<Set<Scope>> {
+  const { membershipScopes, globalScopes } = await resolveUserScopes(userId);
+  const effective = new Set<Scope>(globalScopes);
+  // ponytail: one membership lookup; fold into resolveUserScopes if a hot route shows up.
+  if (await memberOf(userId, projectId)) for (const s of membershipScopes) effective.add(s);
+  return effective;
+}
+
+export async function can(projectId: string, userId: string, scope: Scope): Promise<boolean> {
+  return (await resolveScopes(userId, projectId)).has(scope);
+}
+
+function forbidden(): ProjectAccessError {
+  const error = new Error('Forbidden') as ProjectAccessError;
+  error.statusCode = 403;
+  return error;
+}
+
+export async function isSuperadmin(userId: string): Promise<boolean> {
+  const count = await prisma.userGroup.count({
+    where: { userId, group: { isGlobal: true } }
+  });
+  return count > 0;
+}
+
+export async function requireSuperadmin(userId: string): Promise<void> {
+  if (!(await isSuperadmin(userId))) throw forbidden();
+}
+
+export async function countSuperadmins(): Promise<number> {
+  const rows = await prisma.userGroup.findMany({
+    where: { group: { isGlobal: true } },
+    select: { userId: true },
+    distinct: ['userId']
+  });
+  return rows.length;
+}
+
+export async function isTeamsManager(userId: string): Promise<boolean> {
+  const { membershipScopes, globalScopes } = await resolveUserScopes(userId);
+  return membershipScopes.has('teams_manage') || globalScopes.has('teams_manage');
+}
+
+export async function requireTeamsManage(userId: string): Promise<void> {
+  if (!(await isTeamsManager(userId))) throw forbidden();
+}
+
+// Returns the effective scope set on success (callers use it for secret masking); throws 404/403 otherwise.
+export async function requireScope(projectId: string, userId: string, scope: Scope): Promise<Set<Scope>> {
+  const scopes = await resolveScopes(userId, projectId);
+  if (!scopes.has(scope)) {
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+    const error = new Error(project ? 'Forbidden' : 'Project not found') as ProjectAccessError;
+    error.statusCode = project ? 403 : 404;
+    throw error;
+  }
+  return scopes;
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -44,99 +116,35 @@ export function getAuthUser(request: FastifyRequest): AuthUser {
   return { userId: payload.userId, email: payload.email };
 }
 
-export function hasProjectRole(memberRole: ProjectRole, allowedRoles: ProjectRole[]) {
-  return allowedRoles.includes(memberRole);
-}
-
-export async function getProjectAccess(projectId: string, userId: string): Promise<ProjectAccess | null> {
-  const [project, member] = await Promise.all([
-    prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, name: true }
-    }),
-    prisma.projectMember.findFirst({
-      where: {
-        projectId,
-        userId,
-        status: 'ACTIVE'
-      }
-    })
-  ]);
-
-  if (!project || !member) {
-    return null;
+export async function getAccessibleProjectIds(userId: string): Promise<string[]> {
+  const { globalScopes } = await resolveUserScopes(userId);
+  if (globalScopes.size > 0) {
+    const all = await prisma.project.findMany({ select: { id: true } });
+    return all.map((p) => p.id);
   }
-
-  return { project, member };
-}
-
-export async function getAccessibleProjectIds(userId: string) {
-  const memberships = await prisma.projectMember.findMany({
-    where: {
-      userId,
-      status: 'ACTIVE'
-    },
-    select: {
-      projectId: true
-    }
+  const links = await prisma.teamProject.findMany({
+    where: { team: { members: { some: { userId } } } },
+    select: { projectId: true }
   });
-
-  return memberships.map((membership) => membership.projectId);
+  return [...new Set(links.map((l) => l.projectId))];
 }
 
-export async function canCreateProject(userId: string, email: string) {
-  if (isProtectedAdminEmail(email)) {
-    return true;
-  }
-
-  const editableMembership = await prisma.projectMember.findFirst({
-    where: {
-      userId,
-      status: 'ACTIVE',
-      role: {
-        in: ['OWNER', 'EDITOR']
-      }
-    },
-    select: {
-      id: true
-    }
+// Keeps the _email param for the 2.1 call-site signature; protected admins are already in the
+// SUPERADMIN (isGlobal) group via migration/seed, so no email branch is needed.
+export async function canCreateProject(userId: string, _email: string): Promise<boolean> {
+  const rows = await prisma.userGroup.findMany({
+    where: { userId },
+    select: { group: { select: { isGlobal: true, scopes: { select: { scope: true } } } } }
   });
-
-  return Boolean(editableMembership);
-}
-
-export async function requireProjectRole(projectId: string, userId: string, allowedRoles: ProjectRole[]) {
-  const access = await getProjectAccess(projectId, userId);
-  if (!access) {
-    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
-    if (!project) {
-      const error = new Error('Project not found');
-      (error as ProjectAccessError).statusCode = 404;
-      throw error;
-    }
-
-    const error = new Error('Forbidden');
-    (error as ProjectAccessError).statusCode = 403;
-    throw error;
-  }
-
-  if (!hasProjectRole(access.member.role, allowedRoles)) {
-    const error = new Error('Forbidden');
-    (error as ProjectAccessError).statusCode = 403;
-    throw error;
-  }
-
-  return access;
+  return rows.some(({ group }) =>
+    group.isGlobal || group.scopes.some((s) => s.scope === 'project_manage' || s.scope === 'checks_edit')
+  );
 }
 
 export function getProjectAccessStatusCode(error: unknown) {
   return typeof error === 'object' && error !== null && 'statusCode' in error
     ? Number((error as ProjectAccessError).statusCode ?? 500)
     : 500;
-}
-
-export function roleAtLeast(role: ProjectRole, requiredRole: ProjectRole) {
-  return ROLE_RANK[role] >= ROLE_RANK[requiredRole];
 }
 
 export function maskSecretValue(value: string) {
@@ -150,39 +158,4 @@ export function redactEnvironmentVariables(variables: Record<string, string>, vi
   return Object.fromEntries(
     Object.entries(variables).map(([key, value]) => [key, maskSecretValue(value)])
   );
-}
-
-export async function getProjectOwnersCount(projectId: string) {
-  return prisma.projectMember.count({
-    where: { projectId, role: 'OWNER', status: 'ACTIVE' }
-  });
-}
-
-export async function upsertProjectMember(data: {
-  projectId: string;
-  email: string;
-  userId?: string | null;
-  role: ProjectRole;
-  status?: ProjectMemberStatus;
-}) {
-  return prisma.projectMember.upsert({
-    where: {
-      projectId_email: {
-        projectId: data.projectId,
-        email: data.email
-      }
-    },
-    update: {
-      userId: data.userId ?? null,
-      role: data.role,
-      status: data.status ?? 'ACTIVE'
-    },
-    create: {
-      projectId: data.projectId,
-      email: data.email,
-      userId: data.userId ?? null,
-      role: data.role,
-      status: data.status ?? 'ACTIVE'
-    }
-  });
 }

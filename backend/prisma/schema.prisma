@@ -17,8 +17,8 @@ model Project {
   channels  NotificationChannel[]
   suites    Suite[]
   schedules Schedule[]
-  members   ProjectMember[]
   fixtures  Fixture[]
+  teams     TeamProject[]
 }
 
 model Fixture {
@@ -37,7 +37,9 @@ model User {
   email        String   @unique
   passwordHash String
   createdAt    DateTime @default(now())
-  memberships  ProjectMember[]
+  groups          UserGroup[]
+  teamMemberships TeamMember[]
+  invitesSent     Invite[] @relation("InvitesSent")
 }
 
 model Test {
@@ -165,22 +167,84 @@ model NotificationChannel {
   createdAt DateTime @default(now())
 }
 
-model ProjectMember {
+model Invite {
+  id          String       @id @default(cuid())
+  email       String
+  tokenHash   String       @unique
+  status      InviteStatus @default(PENDING)
+  groupId     String?
+  teamId      String?
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
+
+  invitedBy   User   @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: Cascade)
+  group       Group? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  team        Team?  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([status])
+}
+
+model Group {
   id        String   @id @default(cuid())
-  projectId String
-  userId    String?
-  email     String
-  role      ProjectRole
-  status    ProjectMemberStatus @default(ACTIVE)
+  name      String   @unique
+  isSystem  Boolean  @default(false)
+  isGlobal  Boolean  @default(false)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes GroupScope[]
+  users  UserGroup[]
+  invites Invite[]
+}
 
-  @@unique([projectId, email])
-  @@index([projectId])
+model GroupScope {
+  groupId String
+  scope   Scope
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, scope])
+}
+
+model UserGroup {
+  userId  String
+  groupId String
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  members  TeamMember[]
+  projects TeamProject[]
+  invites  Invite[]
+}
+
+model TeamMember {
+  teamId String
+  userId String
+  team   Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
   @@index([userId])
+}
+
+model TeamProject {
+  teamId    String
+  projectId String
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, projectId])
+  @@index([projectId])
 }
 
 enum RunStatus {
@@ -203,13 +267,27 @@ enum BatchStatus {
   FAILED
 }
 
-enum ProjectRole {
-  OWNER
-  EDITOR
-  VIEWER
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
 }
 
-enum ProjectMemberStatus {
-  ACTIVE
-  PENDING
+enum Scope {
+  runs_read
+  runs_trigger
+  checks_read
+  checks_edit
+  schedules_read
+  schedules_edit
+  environments_read
+  environments_edit
+  environments_reveal_secrets
+  alerts_read
+  alerts_edit
+  members_read
+  teams_manage
+  project_manage
+  project_delete
 }

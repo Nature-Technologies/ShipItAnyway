@@ -3,7 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { sendSlack, sendTelegram } from '../services/notifier';
-import { getAuthUser, getProjectAccessStatusCode, maskSecretValue, requireProjectRole } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, maskSecretValue, requireScope } from '../utils/project-access';
 
 const TelegramConfigSchema = z.object({
   botToken: z.string().min(1),
@@ -70,8 +70,8 @@ export async function channelRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/channels', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      const access = await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
-      const viewerOnly = access.member.role === 'VIEWER';
+      const scopes = await requireScope(req.params.projectId, userId, 'alerts_read');
+      const viewerOnly = !scopes.has('alerts_edit');
 
       const channels = await prisma.notificationChannel.findMany({
         where: { projectId: req.params.projectId },
@@ -101,7 +101,7 @@ export async function channelRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(req.params.projectId, userId, 'alerts_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -163,7 +163,7 @@ export async function channelRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(req.params.projectId, userId, 'alerts_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -201,7 +201,7 @@ export async function channelRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(existing.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(existing.projectId, userId, 'alerts_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -230,7 +230,7 @@ export async function channelRoutes(fastify: FastifyInstance) {
       if (!existing) return reply.status(404).send({ error: 'Not found' });
 
       const { userId } = getAuthUser(req);
-      await requireProjectRole(existing.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(existing.projectId, userId, 'alerts_edit');
       await prisma.notificationChannel.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
     } catch (error) {

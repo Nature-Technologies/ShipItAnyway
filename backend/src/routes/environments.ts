@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
-import { getAuthUser, getProjectAccessStatusCode, redactEnvironmentVariables, requireProjectRole } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, redactEnvironmentVariables, requireScope } from '../utils/project-access';
 
 const EnvironmentSchema = z.object({
   name: z.string().min(1).max(50),
@@ -12,8 +12,8 @@ export async function environmentRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/environments', async (req, reply) => {
     const { userId } = getAuthUser(req);
     try {
-      const access = await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR', 'VIEWER']);
-      const viewerOnly = access.member.role === 'VIEWER';
+      const scopes = await requireScope(req.params.projectId, userId, 'environments_read');
+      const viewerOnly = !scopes.has('environments_reveal_secrets');
       const environments = await prisma.environment.findMany({
         where: { projectId: req.params.projectId },
         orderBy: { createdAt: 'asc' }
@@ -35,7 +35,7 @@ export async function environmentRoutes(fastify: FastifyInstance) {
 
     const { userId } = getAuthUser(req);
     try {
-      await requireProjectRole(req.params.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(req.params.projectId, userId, 'environments_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
@@ -60,7 +60,7 @@ export async function environmentRoutes(fastify: FastifyInstance) {
     if (!environment) return reply.status(404).send({ error: 'Environment not found' });
 
     try {
-      await requireProjectRole(environment.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(environment.projectId, userId, 'environments_edit');
       return await prisma.environment.update({
         where: { id: req.params.id },
         data: result.data
@@ -78,7 +78,7 @@ export async function environmentRoutes(fastify: FastifyInstance) {
         select: { projectId: true }
       });
       if (!environment) return reply.status(404).send({ error: 'Environment not found' });
-      await requireProjectRole(environment.projectId, userId, ['OWNER', 'EDITOR']);
+      await requireScope(environment.projectId, userId, 'environments_edit');
       await prisma.environment.delete({ where: { id: req.params.id } });
       return reply.status(204).send();
     } catch (error) {

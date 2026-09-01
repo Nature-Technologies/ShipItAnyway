@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Fastify from 'fastify';
 import prisma from '../src/prisma';
+import { joinProject } from './helpers/rbac';
 import { testRoutes } from '../src/routes/tests';
 
 type TestDataCase = {
@@ -34,15 +35,7 @@ async function createProjectAccess() {
     data: { name: `Test data ${suffix}` }
   });
 
-  await prisma.projectMember.create({
-    data: {
-      projectId: project.id,
-      userId: user.id,
-      email: user.email,
-      role: 'OWNER',
-      status: 'ACTIVE'
-    }
-  });
+  await joinProject(project.id, user.id);
 
   return { user, project };
 }

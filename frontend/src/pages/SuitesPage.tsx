@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Checkbox, Col, Input, Layout, Modal, Popconfirm, Radio, Row, Space, Table, Tag, Typography, message } from 'antd';
 import { DeleteOutlined, EditOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { createSuite, deleteSuite, getEnvironments, getProject, getSuites, runSuite, updateSuite } from '../api/client';
+import { qk } from '../lib/queryKeys';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
-import type { Environment, Project, Suite, Test } from '../types';
+import type { Suite, Test } from '../types';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -23,39 +25,50 @@ function suiteTestNames(suite: Suite, tests: Test[]) {
 export default function SuitesPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [project, setProject] = useState<(Project & { tests: Test[] }) | null>(null);
-  const [suites, setSuites] = useState<Suite[]>([]);
-  const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const projectQuery = useQuery({
+    queryKey: qk.project(projectId!),
+    queryFn: () => getProject(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const suitesQuery = useQuery({
+    queryKey: qk.projectSuites(projectId!),
+    queryFn: () => getSuites(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const environmentsQuery = useQuery({
+    queryKey: qk.projectEnvironments(projectId!),
+    queryFn: () => getEnvironments(projectId!),
+    enabled: Boolean(projectId)
+  });
+  const project = projectQuery.data ?? null;
+  const suites = suitesQuery.data ?? [];
+  const environments = environmentsQuery.data ?? [];
+  const loading = projectQuery.isLoading || suitesQuery.isLoading || environmentsQuery.isLoading;
   const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [editingSuite, setEditingSuite] = useState<Suite | null>(null);
   const [name, setName] = useState('');
   const [selectedTestIds, setSelectedTestIds] = useState<string[]>([]);
   const [runModalOpen, setRunModalOpen] = useState(false);
   const [runSuiteId, setRunSuiteId] = useState<string | null>(null);
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string | undefined>(undefined);
-  const [runLoading, setRunLoading] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [projectData, suiteData, environmentData] = await Promise.all([
-        getProject(projectId!),
-        getSuites(projectId!),
-        getEnvironments(projectId!)
-      ]);
-      setProject(projectData);
-      setSuites(suiteData);
-      setEnvironments(environmentData);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [projectId]);
+  const invalidateSuites = () => qc.invalidateQueries({ queryKey: qk.projectSuites(projectId!) });
+  const createMutation = useMutation({
+    mutationFn: (payload: { name: string; testIds: string[] }) => createSuite(projectId!, payload),
+    onSuccess: invalidateSuites
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { name: string; testIds: string[] } }) =>
+      updateSuite(id, payload),
+    onSuccess: invalidateSuites
+  });
+  const deleteMutation = useMutation({ mutationFn: deleteSuite, onSuccess: invalidateSuites });
+  const runMutation = useMutation({
+    mutationFn: ({ suiteId, environmentId }: { suiteId: string; environmentId?: string }) =>
+      runSuite(suiteId, environmentId)
+  });
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   const projectTests = useMemo(() => project?.tests ?? [], [project]);
 
@@ -84,32 +97,25 @@ export default function SuitesPage() {
       return;
     }
 
-    setSaving(true);
-    try {
-      const payload = { name: name.trim(), testIds: selectedTestIds };
-      if (editingSuite) {
-        await updateSuite(editingSuite.id, payload);
-        message.success('Suite updated');
-      } else {
-        await createSuite(projectId!, payload);
-        message.success('Suite created');
-      }
-      setModalOpen(false);
-      await load();
-    } finally {
-      setSaving(false);
+    const payload = { name: name.trim(), testIds: selectedTestIds };
+    if (editingSuite) {
+      await updateMutation.mutateAsync({ id: editingSuite.id, payload });
+      message.success('Suite updated');
+    } else {
+      await createMutation.mutateAsync(payload);
+      message.success('Suite created');
     }
+    setModalOpen(false);
   };
 
   const handleDelete = async (id: string) => {
-    await deleteSuite(id);
+    await deleteMutation.mutateAsync(id);
     message.success('Suite deleted');
-    await load();
   };
 
   const handleRun = async (suiteId: string) => {
     if (environments.length === 0) {
-      await runSuite(suiteId);
+      await runMutation.mutateAsync({ suiteId });
       message.success('Suite queued');
       navigate('/dashboard');
       return;
@@ -123,16 +129,13 @@ export default function SuitesPage() {
   const handleConfirmRun = async () => {
     if (!runSuiteId) return;
 
-    setRunLoading(true);
     try {
-      await runSuite(runSuiteId, selectedEnvironmentId);
+      await runMutation.mutateAsync({ suiteId: runSuiteId, environmentId: selectedEnvironmentId });
       setRunModalOpen(false);
       message.success('Suite queued');
       navigate('/dashboard');
     } catch {
       message.error('Failed to run suite');
-    } finally {
-      setRunLoading(false);
     }
   };
 
@@ -253,7 +256,7 @@ export default function SuitesPage() {
         open={runModalOpen}
         onOk={() => void handleConfirmRun()}
         onCancel={() => setRunModalOpen(false)}
-        confirmLoading={runLoading}
+        confirmLoading={runMutation.isPending}
       >
         <Radio.Group
           style={{ display: 'grid', gap: 12, width: '100%' }}

@@ -11,7 +11,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup-playwright.mjs",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=backend --filter=frontend",
     "dev:backend": "turbo run dev --filter=backend",
     "dev:frontend": "turbo run dev --filter=frontend",
     "build": "turbo run build",

@@ -50,32 +50,38 @@ Cross-cutting rewrite of authorization. Landed **before** the external integrati
 
 Today permission is a single `ProjectMember.role` enum checked by hardcoded `allowedRoles` arrays in every route (`requireProjectRole`, `project-access.ts:108`). You cannot grant one feature without the whole tier.
 
+Two orthogonal concepts (decided 2026-08-20 — see `docs/superpowers/specs/2026-08-20-rbac-*.md`):
+**Group = capability** (a named set of scopes, held globally by a user) and **Team = membership**
+(a collection of users assigned to projects; enforces no scopes). Effective authority on a
+project = Team (where) × Group (what).
+
 ### 2.1 Scopes as the permission gates
-- Atomic, feature-level capabilities: `runs:read`, `runs:trigger`, `checks:edit`, `schedules:edit`, `environments:edit`, `environments:reveal-secrets`, `alerts:edit`, `members:read`, `groups:assign`, `project:manage`, `project:delete`.
+- Atomic, feature-level capabilities: `runs:read`, `runs:trigger`, `checks:read`, `checks:edit`, `schedules:read`, `schedules:edit`, `environments:read`, `environments:edit`, `environments:reveal-secrets`, `alerts:read`, `alerts:edit`, `members:read`, `teams:manage`, `project:manage`, `project:delete`.
 - Enforcement becomes `requireScope(scope, projectId?)` / `can(user, scope, project?)`, replacing role comparisons.
+- Ships behind a resolver shim that derives scopes from the existing `ProjectMember.role`, so it lands before the group/team tables of 2.2.
 - **Affects:** Auth & access (new policy layer in `project-access.ts`; retire unused `roleAtLeast`) · **every** API route (swap `['OWNER','EDITOR']` arrays for `requireScope`) · `getAccessibleProjectIds` → "projects where user has any `*:read`".
 
-### 2.2 Groups as bundles of scopes (roles reframed)
-- A group is a named set of scopes. Seed the existing tiers as default groups so current behavior is preserved:
-  - VIEWER → `{*:read}` (secrets stay masked — no `*:reveal-secrets`).
-  - EDITOR → VIEWER + `{*:edit, runs:trigger}`.
-  - OWNER → EDITOR + `{project:manage, project:delete, members:*, groups:assign}`.
-- A user's effective scopes = union of their groups' scopes (per project for project-scoped groups; global groups apply everywhere).
-- **Affects:** Data model (new `Group`, `GroupScope`, `UserGroup` tables; migrate `ProjectMember.role` → default-group assignments; `seed.ts` seeds default groups).
+### 2.2 Groups (capability) + Teams (membership)
+- **Group = named set of scopes, held globally per user** (`UserGroup(userId, groupId)`). Effective scopes = union of the user's groups' scopes, the same wherever they have access. `Group.isGlobal` groups apply without membership (superadmin).
+- **Team = collection of users, assigned to projects (many-to-many)**; team assignment *is* project membership. A team enforces no scopes.
+- `requireScope(P, user, scope)` = scope ∈ global-group scopes, OR (member of P via a team AND scope ∈ the user's group scopes).
+- Seed the existing tiers as default groups so current behavior is preserved (VIEWER→`{*:read}`, EDITOR→+`{*:edit, runs:trigger}`, OWNER→+`{project:manage, project:delete, teams:manage}`), plus a global `SUPERADMIN` group with every scope. One team per existing project preserves membership. Note: global-per-user capability flattens a multi-role user to their max role.
+- **Affects:** Data model (new `Group`, `GroupScope`, `UserGroup`, `Team`, `TeamMember`, `TeamProject` tables + `Scope` enum; migrate `ProjectMember.role` → groups + teams; drop `role`; `seed.ts` seeds default + superadmin groups).
 
 ### 2.3 Assignment authority (delegatable)
-- **Superadmin** — promote today's `ADMIN_EMAIL` env allowlist to a first-class `User.isSuperadmin` (or a global group). Can assign any user to any group and manage groups/scopes.
-- **Delegated:** any group holding `groups:assign` can assign users to groups within its project scope. Group management is gated by a scope, not hardcoded to OWNER.
-- **Affects:** Auth & access (`constants/admin.ts` → DB flag) · Data model (`User.isSuperadmin`) · API routes (`projects.ts` member endpoints → group-assignment endpoints).
+- **Superadmin owns capability** — a first-class global group (`SUPERADMIN`, `isGlobal`) replacing the `ADMIN_EMAIL` allowlist. Only a superadmin assigns user↔group (global capability) and creates/edits custom group definitions.
+- **Teams are delegated** — holders of `teams:manage` create/edit teams, manage membership, and attach a team to a project they have authority on (`requireScope(project, teams:manage)`). Membership and capability are separate acts.
+- System-wide "at least one superadmin" floor replaces the per-project "at least one owner" invariant.
+- **Affects:** Auth & access (`constants/admin.ts`/`isProtectedAdminEmail` retired for authz) · API routes (new `/groups`, `/users/:id/groups`, `/teams` endpoints; `projects.ts` member endpoints removed; `POST /projects` superadmin-only).
 
 ### 2.4 Real invite flow (close dead `PENDING` state)
-- `PENDING` status + the frontend "Pending" tag exist but nothing produces them; `POST members` always writes `ACTIVE` with a required password.
-- Add token-based email invites: invite → pending → user sets own password → active. No self-signup by design.
-- **Affects:** API routes (`auth.ts`, `projects.ts`) · New services (mailer — shared with Phase 3) · Data model (`ProjectMember`/`UserGroup` status, invite token) · Frontend (invite form, pending state).
+- `PENDING` status + the frontend "Pending" tag exist but nothing produces them; `POST members` always wrote `ACTIVE` with a required password.
+- Add a first-class `Invite` model (hashed token, TTL, single-use): invite → email link → user sets own password → active, with an **auto-VIEWER capability floor** on accept plus any invited team membership. Retires `ProjectMember`/`ProjectMemberStatus` entirely. No self-signup by design.
+- **Affects:** API routes (`auth.ts` public accept endpoints; new `/invites`) · New services (mailer — nodemailer + `SMTP_*`, console fallback; shared with Phase 3) · Data model (new `Invite`/`InviteStatus`; drop `ProjectMember`) · Frontend (public accept page).
 
 ### 2.5 Frontend permission gating
-- Group/scope management UI (assign users to groups, define group scopes) replacing the role dropdown; gate UI on effective scopes instead of `isOwner/isEditor/isViewer`.
-- **Affects:** Frontend (`ProjectPage.tsx`, `AuthContext.tsx`, `api/client.ts`).
+- Gate UI on effective scopes (`can(scope)`) instead of `isOwner/isEditor/isViewer`; server sends `currentUserScopes` per project and `isSuperadmin`. Per-project team management + invite UI (delegated); a superadmin Access console for groups and user↔group assignment replaces the role dropdown.
+- **Affects:** Frontend (`ProjectPage.tsx`, `AuthContext.tsx`, `api/client.ts`, new Access console + accept page).
 
 **Depends on:** Phase 1 routes existing (so their scopes are defined once, not rewritten).
 

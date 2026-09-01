@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Col, Layout, Row, Select, Space, Table, Tag, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/AppHeader';
@@ -6,7 +7,8 @@ import AppFooter from '../components/AppFooter';
 import RunStatusBadge from '../components/RunStatusBadge';
 import UserMenu from '../components/UserMenu';
 import { getProjects, getRunHistory } from '../api/client';
-import type { DashboardRecentRun, ProjectSummary, RunsResponse } from '../types';
+import { qk } from '../lib/queryKeys';
+import type { DashboardRecentRun, ProjectSummary } from '../types';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -90,16 +92,24 @@ function runsHaveNoFilters(projectId?: string, days = 30, status: 'all' | 'passe
 
 export default function RunsPage() {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [days, setDays] = useState(30);
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
   const [status, setStatus] = useState<'all' | 'passed' | 'failed'>('all');
   const [trigger, setTrigger] = useState<'all' | 'manual' | 'schedule'>('all');
   const [limit, setLimit] = useState(PAGE_SIZE);
-  const [runs, setRuns] = useState<DashboardRecentRun[]>([]);
-  const [summary, setSummary] = useState<RunsResponse['summary'] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: getProjects });
+  const projects = projectsQuery.data ?? [];
+
+  const runsQuery = useQuery({
+    queryKey: qk.runs({ days, projectId, status, trigger, limit }),
+    queryFn: () => getRunHistory({ days, projectId, status, trigger, limit }),
+    placeholderData: keepPreviousData
+  });
+  const runs = runsQuery.data?.runs ?? [];
+  const summary = runsQuery.data?.summary ?? null;
+  const loading = runsQuery.isFetching;
+  const error = runsQuery.isError ? 'Recent runs could not be loaded' : null;
 
   const projectOptions = useMemo(
     () => [
@@ -108,45 +118,6 @@ export default function RunsPage() {
     ],
     [projects]
   );
-
-  useEffect(() => {
-    void getProjects().then(setProjects).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    setLoading(true);
-    setError(null);
-
-    void getRunHistory({
-      days,
-      projectId,
-      status,
-      trigger,
-      limit
-    })
-      .then((response) => {
-        if (cancelled) return;
-        setRuns(response.runs);
-        setSummary(response.summary);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setError('Recent runs could not be loaded');
-        setRuns([]);
-        setSummary(null);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [days, projectId, status, trigger, limit]);
 
   const totalRuns = summary?.total ?? 0;
   const visibleRuns = runs.length;
