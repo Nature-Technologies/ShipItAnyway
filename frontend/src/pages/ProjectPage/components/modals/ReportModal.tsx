@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { Input, Modal, Select, Space, Tag, Typography, message } from 'antd';
+import { UserOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createReport,
@@ -52,6 +53,16 @@ export default function ReportModal({ open, mode, report, onClose }: Props) {
     throwOnError: false as const
   });
   const knownUsers = usersQuery.data ?? [];
+  const knownEmails = useMemo(() => new Set(knownUsers.map((u) => u.email)), [knownUsers]);
+
+  // Typeahead suggestions: known users matching the typed substring, not yet added
+  const suggestions = useMemo(() => {
+    const q = recipientInput.trim().toLowerCase();
+    if (!q) return [];
+    return knownUsers.filter(
+      (u) => u.email.toLowerCase().includes(q) && !recipients.includes(u.email)
+    );
+  }, [knownUsers, recipientInput, recipients]);
 
   useEffect(() => {
     if (!open) return;
@@ -102,23 +113,21 @@ export default function ReportModal({ open, mode, report, onClose }: Props) {
     }
   });
 
-  const addRecipient = (value: string) => {
-    const trimmed = value.trim().replace(/,+$/, '');
+  const addEmail = (email: string) => {
+    const trimmed = email.trim().replace(/,+$/, '');
     if (!trimmed) return;
     if (!EMAIL_RE.test(trimmed)) {
       void message.warning('Enter a valid email address');
       return;
     }
-    if (!recipients.includes(trimmed)) {
-      setRecipients((prev) => [...prev, trimmed]);
-    }
+    if (!recipients.includes(trimmed)) setRecipients((prev) => [...prev, trimmed]);
     setRecipientInput('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
-      addRecipient(recipientInput);
+      addEmail(recipientInput);
     }
   };
 
@@ -230,43 +239,90 @@ export default function ReportModal({ open, mode, report, onClose }: Props) {
 
         <div>
           <Text type="secondary">Recipients</Text>
-          <div
-            style={{
-              marginTop: 8,
-              padding: '4px 8px',
-              border: '1px solid #d9d9d9',
-              borderRadius: 8,
-              minHeight: 38,
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 4,
-              alignItems: 'center'
-            }}
-          >
-            {recipients.map((email) => {
-              const user = knownUsers.find((u) => u.email === email);
-              return (
-                <Tag
-                  key={email}
-                  closable
-                  onClose={() => setRecipients((prev) => prev.filter((r) => r !== email))}
-                  style={{ margin: 0 }}
-                >
-                  {user ? user.email : email}
-                </Tag>
-              );
-            })}
-            <input
-              value={recipientInput}
-              onChange={(e) => setRecipientInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onBlur={() => { if (recipientInput.trim()) addRecipient(recipientInput); }}
-              placeholder={recipients.length === 0 ? 'Add email, press Enter or comma' : ''}
-              style={{ border: 'none', outline: 'none', flex: 1, minWidth: 180, fontSize: 14 }}
-            />
+          {/* position:relative so the suggestion dropdown is anchored here */}
+          <div style={{ position: 'relative', marginTop: 8 }}>
+            <div
+              style={{
+                padding: '4px 8px',
+                border: '1px solid #d9d9d9',
+                borderRadius: 8,
+                minHeight: 38,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 4,
+                alignItems: 'center'
+              }}
+            >
+              {recipients.map((email) => {
+                const isPlatformUser = knownEmails.has(email);
+                return (
+                  <Tag
+                    key={email}
+                    closable
+                    color={isPlatformUser ? 'blue' : undefined}
+                    icon={isPlatformUser ? <UserOutlined /> : undefined}
+                    onClose={() => setRecipients((prev) => prev.filter((r) => r !== email))}
+                    style={{ margin: 0 }}
+                  >
+                    {email}
+                  </Tag>
+                );
+              })}
+              <input
+                value={recipientInput}
+                onChange={(e) => setRecipientInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onBlur={() => { if (recipientInput.trim()) addEmail(recipientInput); }}
+                placeholder={recipients.length === 0 ? 'Add email, press Enter or comma' : ''}
+                style={{ border: 'none', outline: 'none', flex: 1, minWidth: 180, fontSize: 14 }}
+              />
+            </div>
+
+            {/* Typeahead suggestions — mouseDown preventDefault so blur fires after selection */}
+            {suggestions.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 1000,
+                  background: '#fff',
+                  border: '1px solid #d9d9d9',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  marginTop: 2
+                }}
+              >
+                {suggestions.map((u) => (
+                  <div
+                    key={u.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // keep input focus; suppress blur→addEmail
+                      addEmail(u.email);
+                    }}
+                    style={{
+                      padding: '6px 12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: 14
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#f5f5f5'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = ''; }}
+                  >
+                    <UserOutlined style={{ color: '#1677ff', fontSize: 12 }} />
+                    {u.email}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-            Press Enter or comma to add. Known users resolve to their name in the pill.
+            Press Enter or comma to add any email. Platform users are marked with a badge; other addresses are added as external recipients.
           </Text>
         </div>
       </Space>
