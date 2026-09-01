@@ -38,6 +38,10 @@ services:
     ports:
       - "${BACKEND_HOST_PORT:-3000}:3000"
       - "9229:9229"
+    # env_file supplies SMTP_* / APP_URL from the host root .env; the anchor's
+    # explicit `environment:` keys still win over any duplicates here.
+    env_file:
+      - .env
     environment: *backend-env
     volumes:
       # Live source; anonymous volume keeps the container's Linux node_modules
@@ -83,16 +87,16 @@ services:
       backend:
         condition: service_healthy
 
-  mcp-server:
-    build:
-      context: .
-      dockerfile: mcp-server/Dockerfile
-    restart: unless-stopped
-    stdin_open: true
-    tty: false
-    environment:
-      BACKEND_URL: http://backend:3000
-      BACKEND_TOKEN: ${BACKEND_TOKEN:-}
-    depends_on:
-      backend:
-        condition: service_healthy
+  # mcp-server:
+  #   build:
+  #     context: .
+  #     dockerfile: mcp-server/Dockerfile
+  #   restart: unless-stopped
+  #   stdin_open: true
+  #   tty: false
+  #   environment:
+  #     BACKEND_URL: http://backend:3000
+  #     BACKEND_TOKEN: ${BACKEND_TOKEN:-}
+  #   depends_on:
+  #     backend:
+  #       condition: service_healthy
