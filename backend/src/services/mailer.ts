@@ -36,3 +36,44 @@ export async function sendInviteEmail(to: string, acceptUrl: string) {
       + `<p><a href="${acceptUrl}">Accept your invite</a></p>`
   });
 }
+
+export type ReportDigest = {
+  projectName: string;
+  environmentName: string;
+  reportName: string;
+  windowStart: Date;
+  windowEnd: Date;
+  total: number;
+  passed: number;
+  failed: number;
+  passRate: number;
+  avgDurationMs: number | null;
+  failures: Array<{ checkName: string; error: string | null }>;
+  flaky: Array<{ checkName: string; passRate: number }>;
+};
+
+export async function sendReportEmail(to: string, d: ReportDigest) {
+  const range = `${d.windowStart.toISOString()} → ${d.windowEnd.toISOString()}`;
+  const avg = d.avgDurationMs == null ? 'n/a' : `${d.avgDurationMs} ms`;
+  const failureLines = d.failures.length
+    ? d.failures.map((f) => `- ${f.checkName}: ${f.error ?? 'failed'}`).join('\n')
+    : '- none';
+  const flakyLines = d.flaky.length
+    ? d.flaky.map((f) => `- ${f.checkName} (${f.passRate}% pass)`).join('\n')
+    : '- none';
+
+  const text =
+    `${d.reportName} — ${d.projectName} / ${d.environmentName}\n` +
+    `Window: ${range}\n\n` +
+    `Runs: ${d.total} | Passed: ${d.passed} | Failed: ${d.failed} | Pass rate: ${d.passRate}% | Avg: ${avg}\n\n` +
+    `Failures:\n${failureLines}\n\nFlaky:\n${flakyLines}\n`;
+
+  const html =
+    `<h2>${d.reportName}</h2>` +
+    `<p><strong>${d.projectName} / ${d.environmentName}</strong><br/>Window: ${range}</p>` +
+    `<p>Runs: ${d.total} · Passed: ${d.passed} · Failed: ${d.failed} · Pass rate: ${d.passRate}% · Avg: ${avg}</p>` +
+    `<h3>Failures</h3><ul>${d.failures.map((f) => `<li>${f.checkName}: ${f.error ?? 'failed'}</li>`).join('') || '<li>none</li>'}</ul>` +
+    `<h3>Flaky</h3><ul>${d.flaky.map((f) => `<li>${f.checkName} (${f.passRate}% pass)</li>`).join('') || '<li>none</li>'}</ul>`;
+
+  return sendMail({ to, subject: `[${d.environmentName}] ${d.reportName} report`, text, html });
+}
