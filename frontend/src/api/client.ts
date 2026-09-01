@@ -10,6 +10,9 @@ import type {
   PageView,
   Project,
   ProjectMember,
+  ReportConfig,
+  ReportConfigPayload,
+  ReportSend,
   Team,
   TeamDetail,
   ProjectWorkspace,
@@ -383,3 +386,24 @@ export const validateInvite = (token: string) =>
 
 export const acceptInvite = (token: string, password: string) =>
   api.post<{ ok: true }>('/auth/accept-invite', { token, password }).then((r) => r.data);
+
+export const getReports = (projectId: string) =>
+  api.get<ReportConfig[]>(`/projects/${projectId}/reports`).then((r) => r.data);
+
+export const createReport = (projectId: string, payload: ReportConfigPayload) =>
+  api.post<ReportConfig>(`/projects/${projectId}/reports`, payload).then((r) => r.data);
+
+export const updateReport = (id: string, payload: Partial<ReportConfigPayload>) =>
+  api.patch<ReportConfig>(`/reports/${id}`, payload).then((r) => r.data);
+
+export const deleteReport = (id: string) =>
+  api.delete(`/reports/${id}`).then(() => undefined);
+
+export const sendReportNow = (id: string) =>
+  api.post<ReportSend | null>(`/reports/${id}/send-now`, {}).then((r) => r.data);
+
+export const previewReport = (id: string) =>
+  api.post<{ ok: boolean; previewedTo: string }>(`/reports/${id}/preview`, {}).then((r) => r.data);
+
+export const getReportSends = (id: string) =>
+  api.get<ReportSend[]>(`/reports/${id}/sends`).then((r) => r.data);
