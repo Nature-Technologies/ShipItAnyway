@@ -6,7 +6,9 @@ export type Scope =
   | 'environments:edit'
   | 'alerts:edit'
   | 'teams:manage'
-  | 'members:read';
+  | 'members:read'
+  | 'reports:read'
+  | 'reports:edit';
 
 // scopes is the raw wire array (full catalog, `resource:action` form); scope is a known gate.
 export function can(scopes: readonly string[], scope: Scope): boolean {
@@ -25,6 +27,8 @@ export interface ProjectGates {
   canEditAlerts: boolean;
   canManageTeams: boolean;
   canReadMembers: boolean;
+  canReadReports: boolean;
+  canEditReports: boolean;
   readOnly: boolean;
 }
 
@@ -37,6 +41,8 @@ export function deriveProjectGates(scopes: readonly string[]): ProjectGates {
     canEditAlerts: can(scopes, 'alerts:edit'),
     canManageTeams: can(scopes, 'teams:manage'),
     canReadMembers: can(scopes, 'members:read'),
+    canReadReports: can(scopes, 'reports:read'),
+    canEditReports: can(scopes, 'reports:edit'),
     readOnly: isReadOnly(scopes)
   };
 }

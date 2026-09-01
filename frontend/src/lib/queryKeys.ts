@@ -31,5 +31,8 @@ export const qk = {
   teamsPaged: (page: number, limit: number) => ['teams', page, limit] as const,
   team: (id: string) => ['team', id] as const,
   invites: ['invites'] as const,
-  invite: (token: string) => ['invite', token] as const
+  invite: (token: string) => ['invite', token] as const,
+
+  projectReports: (id: string) => ['project', id, 'reports'] as const,
+  reportSends: (id: string) => ['report', id, 'sends'] as const
 } as const;

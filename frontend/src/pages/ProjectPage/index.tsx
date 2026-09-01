@@ -14,6 +14,7 @@ import RunsTab from './components/tabs/RunsTab';
 import SchedulesTab from './components/tabs/SchedulesTab';
 import EnvironmentsTab from './components/tabs/EnvironmentsTab';
 import AlertsTab from './components/tabs/AlertsTab';
+import ReportsTab from './components/tabs/ReportsTab';
 import SettingsTab from './components/tabs/SettingsTab';
 import MembersTab from './components/tabs/MembersTab';
 import RunCheckModal from './components/modals/RunCheckModal';
@@ -35,6 +36,7 @@ function ProjectPageShell() {
     gates,
     canWriteProject,
     canManageMembers,
+    canReadReports,
     projectHeaderDescription,
     importing,
     handleImport,
@@ -62,6 +64,7 @@ function ProjectPageShell() {
     { key: 'schedules', label: 'Schedules' },
     { key: 'environments', label: 'Environments' },
     { key: 'alerts', label: 'Alerts' },
+    ...(canReadReports ? [{ key: 'reports' as const, label: 'Reports' }] : []),
     { key: 'settings', label: 'Settings' },
     ...(canManageMembers ? [{ key: 'members' as const, label: 'Members' }] : [])
   ];
@@ -224,6 +227,7 @@ function ProjectPageShell() {
           {activeTab === 'schedules' && <SchedulesTab />}
           {activeTab === 'environments' && <EnvironmentsTab />}
           {activeTab === 'alerts' && <AlertsTab />}
+          {activeTab === 'reports' && canReadReports && <ReportsTab />}
           {activeTab === 'settings' && <SettingsTab />}
           {activeTab === 'members' && canManageMembers && <MembersTab />}
         </Row>

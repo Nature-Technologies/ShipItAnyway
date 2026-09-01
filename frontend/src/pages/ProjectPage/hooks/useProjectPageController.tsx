@@ -163,6 +163,8 @@ export function useProjectPageController() {
   const canManageTeams = gates.canManageTeams;      // team + invite mutations
   const canManageSchedules = gates.canEditSchedules;
   const canManageEnvironments = gates.canEditEnvironments;
+  const canReadReports = gates.canReadReports;
+  const canEditReports = gates.canEditReports;
 
   const qc = useQueryClient();
 
@@ -1135,6 +1137,8 @@ export function useProjectPageController() {
     canManageTeams,
     canManageSchedules,
     canManageEnvironments,
+    canReadReports,
+    canEditReports,
     projectChecks,
     latestChecks,
     environmentUsage,
