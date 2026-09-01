@@ -53,6 +53,10 @@ export type ReportDigest = {
 };
 
 export async function sendReportEmail(to: string, d: ReportDigest) {
+  const esc = (s: string) => s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
   const range = `${d.windowStart.toISOString()} → ${d.windowEnd.toISOString()}`;
   const avg = d.avgDurationMs == null ? 'n/a' : `${d.avgDurationMs} ms`;
   const failureLines = d.failures.length
@@ -69,11 +73,11 @@ export async function sendReportEmail(to: string, d: ReportDigest) {
     `Failures:\n${failureLines}\n\nFlaky:\n${flakyLines}\n`;
 
   const html =
-    `<h2>${d.reportName}</h2>` +
-    `<p><strong>${d.projectName} / ${d.environmentName}</strong><br/>Window: ${range}</p>` +
+    `<h2>${esc(d.reportName)}</h2>` +
+    `<p><strong>${esc(d.projectName)} / ${esc(d.environmentName)}</strong><br/>Window: ${range}</p>` +
     `<p>Runs: ${d.total} · Passed: ${d.passed} · Failed: ${d.failed} · Pass rate: ${d.passRate}% · Avg: ${avg}</p>` +
-    `<h3>Failures</h3><ul>${d.failures.map((f) => `<li>${f.checkName}: ${f.error ?? 'failed'}</li>`).join('') || '<li>none</li>'}</ul>` +
-    `<h3>Flaky</h3><ul>${d.flaky.map((f) => `<li>${f.checkName} (${f.passRate}% pass)</li>`).join('') || '<li>none</li>'}</ul>`;
+    `<h3>Failures</h3><ul>${d.failures.map((f) => `<li>${esc(f.checkName)}: ${esc(f.error ?? 'failed')}</li>`).join('') || '<li>none</li>'}</ul>` +
+    `<h3>Flaky</h3><ul>${d.flaky.map((f) => `<li>${esc(f.checkName)} (${f.passRate}% pass)</li>`).join('') || '<li>none</li>'}</ul>`;
 
   return sendMail({ to, subject: `[${d.environmentName}] ${d.reportName} report`, text, html });
 }
