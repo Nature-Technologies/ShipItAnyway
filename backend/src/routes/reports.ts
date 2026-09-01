@@ -17,6 +17,13 @@ const CreateSchema = z.object({
 
 const UpdateSchema = CreateSchema.partial();
 
+async function validateReportEnvironment(projectId: string, environmentId: string) {
+  const environment = await prisma.environment.findUnique({ where: { id: environmentId } });
+  if (!environment || environment.projectId !== projectId) {
+    throw new Error('Environment not found');
+  }
+}
+
 export async function reportRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: { projectId: string } }>('/projects/:projectId/reports', async (req, reply) => {
     const { userId } = getAuthUser(req);
@@ -41,6 +48,12 @@ export async function reportRoutes(fastify: FastifyInstance) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
 
+    try {
+      await validateReportEnvironment(req.params.projectId, result.data.environmentId);
+    } catch {
+      return reply.status(404).send({ error: 'Environment not found' });
+    }
+
     const config = await prisma.reportConfig.create({
       data: { ...result.data, projectId: req.params.projectId }
     });
@@ -60,6 +73,14 @@ export async function reportRoutes(fastify: FastifyInstance) {
       await requireScope(existing.projectId, userId, 'reports_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+
+    if (result.data.environmentId) {
+      try {
+        await validateReportEnvironment(existing.projectId, result.data.environmentId);
+      } catch {
+        return reply.status(404).send({ error: 'Environment not found' });
+      }
     }
 
     const config = await prisma.reportConfig.update({ where: { id: req.params.id }, data: result.data });
