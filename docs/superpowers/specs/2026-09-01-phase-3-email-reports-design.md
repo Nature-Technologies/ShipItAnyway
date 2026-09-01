@@ -45,6 +45,46 @@ model ReportConfig {
 - Add back-relations `reportConfigs ReportConfig[]` to `Project` and `Environment`.
 - New migration. `timezone` follows the Schedule convention (nullable → UTC).
 
+Report-send history:
+
+```prisma
+model ReportSend {
+  id             String           @id @default(cuid())
+  reportConfigId String
+  status         ReportSendStatus
+  trigger        ReportSendTrigger
+  windowStart    DateTime
+  windowEnd      DateTime
+  recipients     Json             @default("[]")   // string[] snapshot at send time
+  runCount       Int              @default(0)
+  passed         Int              @default(0)
+  failed         Int              @default(0)
+  passRate       Int              @default(0)
+  avgDurationMs  Int?
+  error          String?
+  createdAt      DateTime         @default(now())
+  reportConfig   ReportConfig     @relation(fields: [reportConfigId], references: [id], onDelete: Cascade)
+  @@index([reportConfigId])
+}
+
+enum ReportSendStatus {
+  SENT          // digest emailed
+  SKIPPED_EMPTY // fired but window had zero runs; window left open
+  FAILED        // aggregation ran but mail delivery threw
+}
+
+enum ReportSendTrigger {
+  SCHEDULED
+  MANUAL        // send-now
+}
+```
+
+- Add back-relation `sends ReportSend[]` to `ReportConfig`.
+- `recipients` is snapshotted per send (config recipients may change later).
+- `preview` sends are throwaway (self-only) and are **not** logged.
+- `SKIPPED_EMPTY` rows explain schedule fires that produced no mail, so history has no unexplained gaps.
+- `lastSentAt` stays on `ReportConfig` as the window cursor (cheap lookup); `ReportSend` is the audit record, not the cursor.
+
 ## Scopes
 
 Add to the `Scope` enum: `reports_read`, `reports_edit`.
@@ -74,8 +114,8 @@ Mirror the proven schedule path:
 1. Load config (skip if `!enabled`).
 2. Compute window `(lastSentAt ?? createdAt, now]`.
 3. Query terminal runs (`PASSED`/`FAILED`) with `environmentId = config.environmentId` and, if `checkIds` non-empty, `testId in checkIds`.
-4. **Zero runs → return without sending; leave `lastSentAt` unchanged.**
-5. Else build the digest via `run-stats`, send to each recipient, set `lastSentAt = now`.
+4. **Zero runs → write a `ReportSend` (`SKIPPED_EMPTY`), return without sending; leave `lastSentAt` unchanged.**
+5. Else build the digest via `run-stats`, send to each recipient, set `lastSentAt = now`, write a `ReportSend` (`SENT`, or `FAILED` with `error` if delivery throws). All rows snapshot the window, recipients, and summary counts.
 
 Variants:
 - `send-now`: same logic as a scheduled fire — configured recipients, honors the empty-window skip (zero runs → no send, `lastSentAt` unchanged), advances `lastSentAt` on a real send.
@@ -92,7 +132,8 @@ Add `sendReportEmail(to, digest)` to `backend/src/services/mailer.ts`. HTML + te
 - `PATCH /reports/:id` — `reports_edit`; re-register (or unregister if disabled)
 - `DELETE /reports/:id` — `reports_edit`; unregister
 - `POST /reports/:id/send-now` — `reports_edit`; fire to configured recipients now
-- `POST /reports/:id/preview` — `reports_edit`; render + send to requesting user only
+- `POST /reports/:id/preview` — `reports_edit`; render + send to requesting user only (not logged)
+- `GET  /reports/:id/sends` — `reports_read`; paged send history, newest first
 
 Follow the `channels.ts` pattern: zod schemas, `getAuthUser`, `requireScope`, `getProjectAccessStatusCode` error mapping. Register the route in `index.ts`.
 
@@ -104,20 +145,20 @@ Report config UI attached to the environment (per roadmap):
 - Cron + timezone picker reusing the schedules-page pattern.
 - Check-subset selector (multi-select over the environment's checks; empty = all).
 - `send-now` and `preview` buttons.
+- Send-history view per report (list from `GET /reports/:id/sends`: sentAt, status, window, run count, pass rate, recipient count).
 - Gate all UI on `can('reports_read')` / `can('reports_edit')`.
 - New `frontend/src/api/client.ts` functions consumed via TanStack Query (list/create/update/delete/send-now/preview).
 
 ## Out of scope (YAGNI)
 
 - Digest CSV/attachment export.
-- Per-recipient unsubscribe / delivery tracking.
-- A persisted report-send history table (rely on `lastSentAt` + mailer logs).
+- Per-recipient unsubscribe / delivery tracking (history is at the send level, not per-address).
 
 Add any of these when a concrete need arises.
 
 ## Affected files
 
-- Data model: `schema.prisma`, new migration, `seed.ts`.
+- Data model: `schema.prisma` (`ReportConfig`, `ReportSend` + enums), new migration, `seed.ts`.
 - Auth: `Scope` enum + group seeds (no `project-access.ts` logic change — `requireScope` already generic).
 - Execution: new `report-queue.ts`, `report-scheduler.ts`, `report-runner.ts`; `index.ts` wiring.
 - Services: new `run-stats.ts` (extracted); `mailer.ts` (+`sendReportEmail`).
