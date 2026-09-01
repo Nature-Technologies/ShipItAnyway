@@ -54,9 +54,10 @@ function ProjectPageShell() {
     saveSchedule
   } = useProjectPage();
 
-  const tabs: { key: ProjectTabKey; label: string }[] = [
+  const tabs: { key: ProjectTabKey | 'suites'; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'checks', label: 'Checks' },
+    { key: 'suites', label: 'Suites' },
     { key: 'runs', label: 'Runs' },
     { key: 'schedules', label: 'Schedules' },
     { key: 'environments', label: 'Environments' },
@@ -138,7 +139,13 @@ function ProjectPageShell() {
                 <Tabs
                   activeKey={activeTab}
                   items={tabs.map((tab) => ({ key: tab.key, label: tab.label }))}
-                  onChange={(key) => setActiveTab(key as ProjectTabKey)}
+                  onChange={(key) => {
+                    if (key === 'suites') {
+                      navigate(`/projects/${projectId}/suites`);
+                      return;
+                    }
+                    setActiveTab(key as ProjectTabKey);
+                  }}
                 />
               </div>
             </Card>

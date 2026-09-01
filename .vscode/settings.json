@@ -1,0 +1,8 @@
+{
+  "// Use the workspace TypeScript (5.8), not VS Code's bundled TS.": "Prevents the editor from suggesting ignoreDeprecations \"6.0\", which the pinned build (TS 5.8) rejects. Run 'TypeScript: Select TypeScript Version > Use Workspace Version' once if prompted.",
+  "typescript.tsdk": "backend/node_modules/typescript/lib",
+
+  "// Auto-imports prefer the '@/' alias when it is shorter than a relative path.": "Requires the tsconfig paths in frontend/ and backend/. Restart the TS server after changing tsconfig for path IntelliSense to update.",
+  "typescript.preferences.importModuleSpecifier": "shortest",
+  "javascript.preferences.importModuleSpecifier": "shortest"
+}

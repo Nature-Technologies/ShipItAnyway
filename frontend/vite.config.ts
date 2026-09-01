@@ -42,6 +42,9 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: frontendPort,
+      host: true,
+      // Bind mounts on Windows/macOS don't emit inotify events; poll so HMR sees host edits.
+      watch: env.VITE_USE_POLLING ? { usePolling: true } : undefined,
       proxy: {
         '/api': {
           target: backendUrl,

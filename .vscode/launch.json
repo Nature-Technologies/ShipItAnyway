@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Attach to the backend running in Docker (docker-compose.debug.yml).
+      // Start the stack first:
+      //   docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+      "name": "Docker: Attach Backend",
+      "type": "node",
+      "request": "attach",
+      "preLaunchTask": "docker: debug up",
+      "address": "localhost",
+      "port": 9229,
+      "restart": true,
+      "localRoot": "${workspaceFolder}/backend",
+      "remoteRoot": "/app/backend",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // Debug the frontend in Chrome against the Vite dev server.
+      "name": "Docker: Debug Frontend (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Docker: Debug Full Stack",
+      "configurations": ["Docker: Attach Backend", "Docker: Debug Frontend (Chrome)"],
+      "stopAll": true
+    }
+  ]
+}
