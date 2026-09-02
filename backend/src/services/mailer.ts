@@ -23,7 +23,8 @@ function emailShell(header: { title: string; subtitle?: string; meta?: string },
           ${header.meta ? `<div style="font-size:12px;color:#a5b4fc;margin-top:8px;">${header.meta}</div>` : ''}
         </td></tr>
         ${innerRows}
-        <tr><td style="padding:28px 32px;color:#94a3b8;font-size:11px;border-top:1px solid #f1f5f9;">
+        <tr><td style="height:28px;line-height:28px;font-size:0;">&nbsp;</td></tr>
+        <tr><td style="padding:20px 32px 28px 32px;color:#94a3b8;font-size:11px;border-top:1px solid #eef2f6;">
           Sent by ShipItAnyway
         </td></tr>
       </table>
