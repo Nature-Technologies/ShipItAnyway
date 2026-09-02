@@ -22,6 +22,8 @@ x-backend-env: &backend-env
   TZ: UTC
   DISPLAY: ":99"
   NOVNC_HOST: novnc
+  # Force container Chromium; wins over env_file's host PLAYWRIGHT_BROWSERS_PATH (a Windows path)
+  PLAYWRIGHT_BROWSERS_PATH: "0"
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
   ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@shipitanyway.app}
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
