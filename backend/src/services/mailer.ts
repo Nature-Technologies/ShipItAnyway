@@ -14,7 +14,7 @@ function escHtml(s: string) {
 // `header` fields must be pre-escaped by the caller; `innerRows` is raw <tr> markup.
 function emailShell(header: { title: string; subtitle?: string; meta?: string }, innerRows: string) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#eef2f6;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;padding:24px 0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;padding:32px 16px;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
         <tr><td style="background:#4f46e5;padding:28px 32px;">
