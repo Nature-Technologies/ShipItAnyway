@@ -374,11 +374,11 @@ export default function AccessConsolePage() {
           dataSource={ciDeliveries} rowKey="id" loading={ciDeliveriesQuery.isFetching}
           pagination={false}
           columns={[
-            { title: 'State', dataIndex: 'state', render: (s: string) => <Tag color={s === 'success' ? 'green' : s === 'failure' ? 'red' : 'default'}>{s}</Tag> },
-            { title: 'Repo', dataIndex: 'ciRepo' },
-            { title: 'SHA', dataIndex: 'ciSha', render: (sha: string) => <Text code>{sha.slice(0, 7)}</Text> },
-            { title: 'PR', dataIndex: 'ciPrNumber', render: (pr?: string | null, row?: CiDelivery) =>
-              pr && row ? <a href={`https://github.com/${row.ciRepo}/pull/${pr}`} target="_blank" rel="noreferrer">#{pr}</a> : '—'
+            { title: 'State', dataIndex: 'state', render: (s: string) => <Tag color={s === 'DELIVERED' ? 'green' : s === 'FAILED' ? 'red' : 'gold'}>{s}</Tag> },
+            { title: 'Repo', dataIndex: 'repo' },
+            { title: 'SHA', dataIndex: 'sha', render: (sha?: string) => <Text code>{sha ? sha.slice(0, 7) : '—'}</Text> },
+            { title: 'PR', dataIndex: 'prNumber', render: (pr?: number | null, row?: CiDelivery) =>
+              pr && row ? <a href={`https://github.com/${row.repo}/pull/${pr}`} target="_blank" rel="noreferrer">#{pr}</a> : '—'
             },
             { title: 'Last error', dataIndex: 'lastError', render: (e?: string | null) =>
               e ? <Tooltip title={e}><Text type="danger" ellipsis style={{ maxWidth: 260 }}>{e}</Text></Tooltip> : '—'
@@ -403,8 +403,8 @@ export default function AccessConsolePage() {
           pagination={false}
           columns={[
             { title: 'Name', dataIndex: 'name', render: (n: string) => <Text strong>{n}</Text> },
-            { title: 'User', dataIndex: 'userEmail', render: (e?: string | null) => e ?? '—' },
-            { title: 'Token', dataIndex: 'maskedToken', render: (t: string) => <Text code>{t}</Text> },
+            { title: 'User', dataIndex: 'userEmail', render: (e?: string) => e ?? '—' },
+            { title: 'Token', dataIndex: 'prefix', render: (t: string) => <Text code>{t}</Text> },
             { title: 'Expires', dataIndex: 'expiresAt', render: (d?: string | null) => d ? new Date(d).toLocaleDateString() : 'Never' },
             { title: 'Last used', dataIndex: 'lastUsedAt', render: (d?: string | null) => d ? new Date(d).toLocaleDateString() : 'Never' },
             { title: 'Actions', render: (_: unknown, row: ApiToken) => (

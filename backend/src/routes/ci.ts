@@ -40,13 +40,21 @@ export async function ciRoutes(fastify: FastifyInstance) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
 
-    const context = suiteContext(suite.name);
-    await prisma.ciDelivery.create({
-      data: { correlationId: ci.correlationId, projectId: suite.projectId, repo: ci.repo, sha: ci.sha, context, prNumber: ci.prNumber ?? null, targetUrl: ci.runUrl ?? null }
-    });
+    // Idempotency: duplicate correlationId → 202 no-op
+    const existing = await prisma.ciDelivery.findUnique({ where: { correlationId: ci.correlationId } });
+    if (existing) return reply.status(202).send({ correlationId: ci.correlationId, runIds: [] });
 
     const { runIds } = await createRunsForSelection({
       suiteId, environmentId, trigger: 'CI', ci
+    });
+
+    if (runIds.length === 0) {
+      return reply.status(422).send({ error: 'Suite has no checks to run' });
+    }
+
+    const context = suiteContext(suite.name);
+    await prisma.ciDelivery.create({
+      data: { correlationId: ci.correlationId, projectId: suite.projectId, repo: ci.repo, sha: ci.sha, context, prNumber: ci.prNumber ?? null, targetUrl: ci.runUrl ?? null }
     });
 
     await enqueueCiDelivery(ci.correlationId);

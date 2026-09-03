@@ -504,23 +504,23 @@ export type ReportSend = {
 export interface CiDelivery {
   id: string;
   projectId: string;
-  ciRepo: string;
-  ciSha: string;
-  ciPrNumber?: string | null;
-  state: string;
+  correlationId: string;
+  repo: string;
+  sha: string;
+  prNumber?: number | null;
+  state: 'PENDING' | 'DELIVERED' | 'FAILED';
   lastError?: string | null;
   createdAt: string;
-  updatedAt: string;
 }
 
 export interface ApiToken {
   id: string;
   name: string;
-  userId: string;
-  userEmail?: string | null;
-  maskedToken: string;
+  prefix: string;
+  userEmail: string;
   expiresAt?: string | null;
   lastUsedAt?: string | null;
+  revokedAt?: string | null;
   createdAt: string;
 }
 

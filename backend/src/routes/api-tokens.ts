@@ -44,13 +44,15 @@ export async function apiTokenRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/api-tokens', async () => {
-    return prisma.apiToken.findMany({
+    const tokens = await prisma.apiToken.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true, name: true, prefix: true, userId: true,
-        lastUsedAt: true, expiresAt: true, revokedAt: true, createdAt: true
+        id: true, name: true, prefix: true,
+        lastUsedAt: true, expiresAt: true, revokedAt: true, createdAt: true,
+        user: { select: { email: true } }
       }
     });
+    return tokens.map(({ user, ...rest }) => ({ ...rest, userEmail: user.email }));
   });
 
   fastify.delete<{ Params: { id: string } }>('/api-tokens/:id', async (req, reply) => {

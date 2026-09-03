@@ -418,7 +418,7 @@ export const listApiTokens = () =>
 export const createApiToken = (body: { name: string; userId: string; expiresAt?: string }) =>
   api.post<ApiTokenCreated>('/api-tokens', body).then((r) => r.data);
 export const revokeApiToken = (id: string) =>
-  api.delete(`/api-tokens/${id}`);
+  api.delete(`/api-tokens/${id}`).then(() => undefined);
 
 // Project GitHub CI config
 export const getProjectGithubConfig = (projectId: string) =>
