@@ -1,8 +1,12 @@
 import axios from 'axios';
 import type {
+  ApiToken,
+  ApiTokenCreated,
+  CiDelivery,
   DashboardResponse,
   Environment,
   Fixture,
+  GithubConfig,
   Group,
   Invite,
   NotificationChannel,
@@ -407,3 +411,23 @@ export const previewReport = (id: string) =>
 
 export const getReportSends = (id: string) =>
   api.get<ReportSend[]>(`/reports/${id}/sends`).then((r) => r.data);
+
+// API tokens (superadmin)
+export const listApiTokens = () =>
+  api.get<ApiToken[]>('/api-tokens').then((r) => r.data);
+export const createApiToken = (body: { name: string; userId: string; expiresAt?: string }) =>
+  api.post<ApiTokenCreated>('/api-tokens', body).then((r) => r.data);
+export const revokeApiToken = (id: string) =>
+  api.delete(`/api-tokens/${id}`);
+
+// Project GitHub CI config
+export const getProjectGithubConfig = (projectId: string) =>
+  api.get<GithubConfig>(`/projects/${projectId}/github`).then((r) => r.data);
+export const setProjectGithubConfig = (projectId: string, body: { repo: string; pat?: string }) =>
+  api.put<GithubConfig>(`/projects/${projectId}/github`, body).then((r) => r.data);
+
+// CI delivery log (superadmin)
+export const listCiDeliveries = () =>
+  api.get<CiDelivery[]>('/ci/deliveries').then((r) => r.data);
+export const resendCiDelivery = (id: string) =>
+  api.post(`/ci/deliveries/${id}/resend`).then((r) => r.data);
