@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import prisma from '../prisma';
-import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
+import { getAuthUser, getProjectAccessStatusCode, requireScope, requireSuperadmin } from '../utils/project-access';
 import { createRunsForSelection } from '../services/run-selection';
 import { suiteContext } from '../services/github';
 import { enqueueCiDelivery } from '../queue/ci-delivery-queue';
@@ -52,5 +52,29 @@ export async function ciRoutes(fastify: FastifyInstance) {
     await enqueueCiDelivery(ci.correlationId);
 
     return reply.status(202).send({ correlationId: ci.correlationId, runIds });
+  });
+
+  async function requireSuper(req: any, reply: any): Promise<boolean> {
+    const { userId } = getAuthUser(req);
+    try {
+      await requireSuperadmin(userId);
+      return true;
+    } catch (error) {
+      reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      return false;
+    }
+  }
+
+  fastify.get('/ci/deliveries', async (req, reply) => {
+    if (!(await requireSuper(req, reply))) return;
+    return prisma.ciDelivery.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+  });
+
+  fastify.post<{ Params: { id: string } }>('/ci/deliveries/:id/resend', async (req, reply) => {
+    if (!(await requireSuper(req, reply))) return;
+    const delivery = await prisma.ciDelivery.findUnique({ where: { id: req.params.id } });
+    if (!delivery) return reply.status(404).send({ error: 'Delivery not found' });
+    await enqueueCiDelivery(delivery.correlationId);
+    return reply.status(202).send({ correlationId: delivery.correlationId });
   });
 }
