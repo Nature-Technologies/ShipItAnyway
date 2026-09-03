@@ -1,0 +1,37 @@
+# Sample workflow: trigger a ShipItAnyway E2E suite from CI and gate the PR
+# on the resulting commit status. Copy into a downstream repo.
+name: ShipItAnyway E2E
+on:
+  push:
+  pull_request:
+jobs:
+  ui-tests:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SIA_URL != '' }}
+    steps:
+      - name: Trigger ShipItAnyway E2E suite
+        env:
+          SIA_URL: ${{ secrets.SIA_URL }}
+          SIA_TOKEN: ${{ secrets.SIA_TOKEN }}
+          SIA_SUITE_ID: ${{ vars.SIA_SUITE_ID }}
+          SIA_ENV_ID: ${{ vars.SIA_ENV_ID }}
+        run: |
+          set -euo pipefail
+          SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          curl -fsS -X POST "$SIA_URL/ci/trigger" \
+            -H "Authorization: Bearer $SIA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @- <<JSON
+          {
+            "suiteId": "$SIA_SUITE_ID",
+            "environmentId": "$SIA_ENV_ID",
+            "ci": {
+              "repo": "${{ github.repository }}",
+              "sha": "$SHA",
+              "ref": "${{ github.ref }}",
+              "prNumber": ${{ github.event.number || 0 }},
+              "correlationId": "${{ github.run_id }}-${{ github.run_attempt }}",
+              "runUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
+          }
+          JSON
