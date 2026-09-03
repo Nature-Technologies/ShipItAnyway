@@ -14,6 +14,7 @@ import { startTestWorker, stopTestWorker } from './queue/worker';
 import { testQueue } from './queue/queue';
 import { startScheduleWorker, stopScheduleWorker, scheduleQueue } from './queue/schedule-queue';
 import { startReportWorker, stopReportWorker, reportQueue } from './queue/report-queue';
+import { startCiDeliveryWorker, stopCiDeliveryWorker, ciDeliveryQueue } from './queue/ci-delivery-queue';
 import { reportScheduler } from './services/report-scheduler';
 import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
@@ -236,6 +237,7 @@ async function start() {
   await schedulerService.loadAll();
   startReportWorker();
   await reportScheduler.loadAll();
+  startCiDeliveryWorker();
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
 
@@ -276,6 +278,8 @@ async function start() {
       await scheduleQueue.close();
       await stopReportWorker();
       await reportQueue.close();
+      await stopCiDeliveryWorker();
+      await ciDeliveryQueue.close();
       await redis.quit();
       process.exit(0);
     } catch (error) {
