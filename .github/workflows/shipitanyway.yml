@@ -15,23 +15,28 @@ jobs:
           SIA_TOKEN: ${{ secrets.SIA_TOKEN }}
           SIA_SUITE_ID: ${{ vars.SIA_SUITE_ID }}
           SIA_ENV_ID: ${{ vars.SIA_ENV_ID }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref }}
+          GH_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_PR: ${{ github.event.number || 0 }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_SERVER: ${{ github.server_url }}
         run: |
           set -euo pipefail
-          SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          CORR="${GH_RUN_ID}-${GH_RUN_ATTEMPT}"
+          RUN_URL="${GH_SERVER}/${GH_REPO}/actions/runs/${GH_RUN_ID}"
+          BODY=$(jq -n \
+            --arg suiteId "$SIA_SUITE_ID" \
+            --arg envId "$SIA_ENV_ID" \
+            --arg repo "$GH_REPO" \
+            --arg sha "$GH_SHA" \
+            --arg ref "$GH_REF" \
+            --argjson pr "${GH_PR:-0}" \
+            --arg corr "$CORR" \
+            --arg runUrl "$RUN_URL" \
+            '{suiteId:$suiteId, environmentId:$envId, ci:{repo:$repo, sha:$sha, ref:$ref, prNumber:$pr, correlationId:$corr, runUrl:$runUrl}}')
           curl -fsS -X POST "$SIA_URL/ci/trigger" \
             -H "Authorization: Bearer $SIA_TOKEN" \
             -H "Content-Type: application/json" \
-            -d @- <<JSON
-          {
-            "suiteId": "$SIA_SUITE_ID",
-            "environmentId": "$SIA_ENV_ID",
-            "ci": {
-              "repo": "${{ github.repository }}",
-              "sha": "$SHA",
-              "ref": "${{ github.ref }}",
-              "prNumber": ${{ github.event.number || 0 }},
-              "correlationId": "${{ github.run_id }}-${{ github.run_attempt }}",
-              "runUrl": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-          }
-          JSON
+            -d "$BODY"
