@@ -241,6 +241,14 @@ async function start() {
   await reportScheduler.loadAll();
   startCiDeliveryWorker();
 
+  // ponytail: in-process interval (matches single-instance assumption); move to BullMQ repeatable if backend is ever scaled
+  const ciReconcileTimer = setInterval(() => {
+    import('./services/ci-reconcile')
+      .then((m) => m.reconcileStuckCiRuns())
+      .catch((e) => console.error('[CI reconcile] failed:', e));
+  }, 5 * 60 * 1000);
+  ciReconcileTimer.unref();
+
   fastify.get('/health', async () => ({ status: 'ok', port }));
 
   fastify.get('/health/db', async () => {
