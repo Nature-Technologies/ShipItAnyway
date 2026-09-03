@@ -16,6 +16,7 @@ export type ProjectTabKey =
   | 'schedules'
   | 'environments'
   | 'alerts'
+  | 'reports'
   | 'settings'
   | 'members';
 export type EntityMode = 'create' | 'edit';

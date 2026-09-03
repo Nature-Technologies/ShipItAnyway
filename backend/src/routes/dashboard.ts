@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { Prisma, type RunStatus, type RunTrigger } from '@prisma/client';
 import prisma from '../prisma';
 import { getAccessibleProjectIds, getAuthUser } from '../utils/project-access';
+import { summarize } from '../services/run-stats';
 
 type DashboardRun = {
   id: string;
@@ -142,12 +143,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
       return acc;
     }, {});
 
-    const total = runs.length;
-    const passed = runs.filter((run) => run.status === 'PASSED').length;
-    const failed = runs.filter((run) => run.status === 'FAILED').length;
-    const avgDurationMs = total
-      ? Math.round(runs.reduce((sum, run) => sum + (run.durationMs ?? 0), 0) / total)
-      : 0;
+    const { total, passed, failed, avgDurationMs } = summarize(runs);
 
     const groupedByTest = new Map<string, DashboardRun[]>();
     for (const run of runs) {

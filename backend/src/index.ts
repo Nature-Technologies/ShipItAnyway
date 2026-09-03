@@ -13,6 +13,8 @@ import { authRoutes } from './routes/auth';
 import { startTestWorker, stopTestWorker } from './queue/worker';
 import { testQueue } from './queue/queue';
 import { startScheduleWorker, stopScheduleWorker, scheduleQueue } from './queue/schedule-queue';
+import { startReportWorker, stopReportWorker, reportQueue } from './queue/report-queue';
+import { reportScheduler } from './services/report-scheduler';
 import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
 import { channelRoutes } from './routes/channels';
@@ -31,6 +33,7 @@ import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
 import { teamRoutes } from './routes/teams';
 import { inviteRoutes } from './routes/invites';
+import { reportRoutes } from './routes/reports';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -219,9 +222,12 @@ async function start() {
   await fastify.register(userRoutes);
   await fastify.register(teamRoutes);
   await fastify.register(inviteRoutes);
+  await fastify.register(reportRoutes);
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();
+  startReportWorker();
+  await reportScheduler.loadAll();
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
 
@@ -260,6 +266,8 @@ async function start() {
       await testQueue.close();
       await stopScheduleWorker();
       await scheduleQueue.close();
+      await stopReportWorker();
+      await reportQueue.close();
       await redis.quit();
       process.exit(0);
     } catch (error) {

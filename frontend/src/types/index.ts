@@ -463,3 +463,45 @@ export interface TestRunBatch {
     totalSteps?: number | null;
   }>;
 }
+
+export type ReportConfig = {
+  id: string;
+  name: string;
+  projectId: string;
+  environmentId: string;
+  cron: string;
+  timezone: string | null;
+  recipients: string[];
+  checkIds: string[];
+  enabled: boolean;
+  lastSentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ReportSend = {
+  id: string;
+  reportConfigId: string;
+  status: 'SENT' | 'SKIPPED_EMPTY' | 'FAILED';
+  trigger: 'SCHEDULED' | 'MANUAL';
+  windowStart: string;
+  windowEnd: string;
+  recipients: string[];
+  runCount: number;
+  passed: number;
+  failed: number;
+  passRate: number;
+  avgDurationMs: number | null;
+  error: string | null;
+  createdAt: string;
+};
+
+export type ReportConfigPayload = {
+  name: string;
+  environmentId: string;
+  cron: string;
+  timezone?: string;
+  recipients: string[];
+  checkIds: string[];
+  enabled?: boolean;
+};

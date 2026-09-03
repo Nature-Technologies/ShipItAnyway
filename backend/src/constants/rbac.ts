@@ -2,11 +2,13 @@ import { Scope } from '@prisma/client';
 
 const READ: Scope[] = [
   Scope.runs_read, Scope.checks_read, Scope.schedules_read,
-  Scope.environments_read, Scope.alerts_read, Scope.members_read
+  Scope.environments_read, Scope.alerts_read, Scope.members_read,
+  Scope.reports_read
 ];
 const EDITOR_ADD: Scope[] = [
   Scope.runs_trigger, Scope.checks_edit, Scope.schedules_edit,
-  Scope.environments_edit, Scope.alerts_edit, Scope.environments_reveal_secrets
+  Scope.environments_edit, Scope.alerts_edit, Scope.environments_reveal_secrets,
+  Scope.reports_edit
 ];
 const OWNER_ADD: Scope[] = [
   Scope.project_manage, Scope.project_delete, Scope.teams_manage
