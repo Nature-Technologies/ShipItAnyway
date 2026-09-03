@@ -47,6 +47,8 @@ test('non-superadmin is 403; list never leaks tokenHash; delete revokes', async 
   const plainApp = await buildApp(plain.id, plain.email);
   try {
     assert.equal((await plainApp.inject({ method: 'POST', url: '/api-tokens', payload: { name: 'x', userId: svc.id } })).statusCode, 403);
+    assert.equal((await plainApp.inject({ method: 'GET', url: '/api-tokens' })).statusCode, 403);
+    assert.equal((await plainApp.inject({ method: 'DELETE', url: '/api-tokens/whatever' })).statusCode, 403);
     const created = (await adminApp.inject({ method: 'POST', url: '/api-tokens', payload: { name: 'ci', userId: svc.id } })).json();
     const list = (await adminApp.inject({ method: 'GET', url: '/api-tokens' })).json();
     const found = list.find((t: any) => t.id === created.id);
