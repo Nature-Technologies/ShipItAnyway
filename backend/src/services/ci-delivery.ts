@@ -54,3 +54,14 @@ export async function deliverCiStatus(correlationId: string): Promise<void> {
 }
 
 export { enqueueCiDelivery };
+
+export async function maybeEnqueueCiDelivery(testRunId: string): Promise<void> {
+  const run = await prisma.testRun.findUnique({
+    where: { id: testRunId },
+    select: { ciCorrelationId: true }
+  });
+  if (!run?.ciCorrelationId) return;
+  const state = await computeCorrelationState(run.ciCorrelationId);
+  if (state === 'pending') return;
+  await enqueueCiDelivery(run.ciCorrelationId);
+}
