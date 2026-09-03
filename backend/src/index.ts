@@ -28,6 +28,7 @@ import { projectRoutes } from './routes/projects';
 import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
+import { resolveApiToken } from './utils/api-token';
 import { fixtureRoutes } from './routes/fixtures';
 import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
@@ -134,6 +135,11 @@ async function start() {
     if (isPublic) return;
 
     try {
+      const viaToken = await resolveApiToken(req.headers.authorization);
+      if (viaToken) {
+        req.user = viaToken;
+        return;
+      }
       await req.jwtVerify();
       const payload = req.user as { userId?: string; email?: string } | undefined;
       if (!payload?.userId || !payload.email) {
