@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Input, Layout, Modal, Select, Space, Spin, Table, Tabs, Tag, Typography, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Input, Layout, Modal, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography, message } from 'antd';
+import { CopyOutlined, PlusOutlined } from '@ant-design/icons';
 import AppHeader from '../components/AppHeader';
 import AppFooter from '../components/AppFooter';
 import UserMenu from '../components/UserMenu';
@@ -11,11 +11,13 @@ import {
   getUsers, setUserGroups,
   getTeams, getTeam, createTeam, updateTeam, deleteTeam,
   addTeamMember, removeTeamMember, attachTeamToProject, detachTeamFromProject,
-  getProjects
+  getProjects,
+  listApiTokens, createApiToken, revokeApiToken,
+  listCiDeliveries, resendCiDelivery
 } from '../api/client';
 import { qk } from '../lib/queryKeys';
 import { useConfirm } from '../context/ConfirmContext';
-import type { Group, Team } from '../types';
+import type { ApiToken, CiDelivery, Group, Team } from '../types';
 
 const { Content } = Layout;
 const { Text } = Typography;
@@ -48,6 +50,12 @@ export default function AccessConsolePage() {
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [groupForm, setGroupForm] = useState<{ name: string; scopes: string[] }>({ name: '', scopes: [] });
+
+  // API tokens state
+  const [tokenModalOpen, setTokenModalOpen] = useState(false);
+  const [tokenName, setTokenName] = useState('');
+  const [tokenUserId, setTokenUserId] = useState('');
+  const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
 
   // Teams
   const [teamModalOpen, setTeamModalOpen] = useState(false);
@@ -91,6 +99,28 @@ export default function AccessConsolePage() {
 
   const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: getProjects });
   const allProjects = (projectsQuery.data ?? []).map((p) => ({ id: p.id, name: p.name }));
+
+  const ciDeliveriesQuery = useQuery({
+    queryKey: qk.ciDeliveries,
+    queryFn: listCiDeliveries,
+    enabled: isSuperadmin
+  });
+  const ciDeliveries = ciDeliveriesQuery.data ?? [];
+
+  const apiTokensQuery = useQuery({
+    queryKey: qk.apiTokens,
+    queryFn: listApiTokens,
+    enabled: isSuperadmin
+  });
+  const apiTokens = apiTokensQuery.data ?? [];
+
+  // ponytail: full user list for token user picker; add server search if roster grows beyond 1000
+  const tokenPickerQuery = useQuery({
+    queryKey: ['users', 'token-picker'],
+    queryFn: () => getUsers({ limit: 1000 }),
+    enabled: isSuperadmin && tokenModalOpen
+  });
+  const tokenPickerUsers = tokenPickerQuery.data?.users ?? [];
 
   const teamDetailQuery = useQuery({
     queryKey: qk.team(selectedTeamId ?? ''),
@@ -144,6 +174,35 @@ export default function AccessConsolePage() {
   const detachMutation = useMutation({
     mutationFn: (projectId: string) => detachTeamFromProject(selectedTeamId as string, projectId),
     onSuccess: invalidateTeamDetail
+  });
+
+  const resendDeliveryMutation = useMutation({
+    mutationFn: (id: string) => resendCiDelivery(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.ciDeliveries });
+      void message.success('Resend queued');
+    },
+    onError: () => { void message.error('Resend failed'); }
+  });
+
+  const createTokenMutation = useMutation({
+    mutationFn: () => createApiToken({ name: tokenName.trim(), userId: tokenUserId }),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: qk.apiTokens });
+      setNewlyCreatedToken(data.token);
+      setTokenName('');
+      setTokenUserId('');
+    },
+    onError: () => { void message.error('Failed to create token'); }
+  });
+
+  const revokeTokenMutation = useMutation({
+    mutationFn: (id: string) => revokeApiToken(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.apiTokens });
+      void message.success('Token revoked');
+    },
+    onError: () => { void message.error('Failed to revoke token'); }
   });
 
   const openNewGroup = () => { setEditingGroup(null); setGroupForm({ name: '', scopes: [] }); setGroupModalOpen(true); };
@@ -212,6 +271,18 @@ export default function AccessConsolePage() {
     catch { return; }
     try { await detachMutation.mutateAsync(projectId); }
     catch (error) { message.error(extractError(error, 'Failed to detach project')); }
+  };
+
+  const handleCreateToken = async () => {
+    if (!tokenName.trim()) { void message.error('Name is required'); return; }
+    if (!tokenUserId) { void message.error('User is required'); return; }
+    await createTokenMutation.mutateAsync();
+  };
+
+  const handleRevokeToken = async (id: string) => {
+    try { await confirm({ title: 'Revoke token?', description: 'The token will stop working immediately. This cannot be undone.', confirmationText: 'Revoke', danger: true }); }
+    catch { return; }
+    await revokeTokenMutation.mutateAsync(id);
   };
 
   const cardStyle = { borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' };
@@ -294,8 +365,59 @@ export default function AccessConsolePage() {
     )
   };
 
+  const ciDeliveriesTab = {
+    key: 'ci-deliveries',
+    label: 'CI Deliveries',
+    children: (
+      <Card style={cardStyle} title="CI delivery log">
+        <Table<CiDelivery>
+          dataSource={ciDeliveries} rowKey="id" loading={ciDeliveriesQuery.isFetching}
+          pagination={false}
+          columns={[
+            { title: 'State', dataIndex: 'state', render: (s: string) => <Tag color={s === 'DELIVERED' ? 'green' : s === 'FAILED' ? 'red' : 'gold'}>{s}</Tag> },
+            { title: 'Repo', dataIndex: 'repo' },
+            { title: 'SHA', dataIndex: 'sha', render: (sha?: string) => <Text code>{sha ? sha.slice(0, 7) : '—'}</Text> },
+            { title: 'PR', dataIndex: 'prNumber', render: (pr?: number | null, row?: CiDelivery) =>
+              pr && row ? <a href={`https://github.com/${row.repo}/pull/${pr}`} target="_blank" rel="noreferrer">#{pr}</a> : '—'
+            },
+            { title: 'Last error', dataIndex: 'lastError', render: (e?: string | null) =>
+              e ? <Tooltip title={e}><Text type="danger" ellipsis style={{ maxWidth: 260 }}>{e}</Text></Tooltip> : '—'
+            },
+            { title: 'Actions', render: (_: unknown, row: CiDelivery) => (
+              <Button size="small" onClick={() => resendDeliveryMutation.mutate(row.id)}>Resend</Button>
+            ) }
+          ]}
+        />
+      </Card>
+    )
+  };
+
+  const apiTokensTab = {
+    key: 'api-tokens',
+    label: 'API Tokens',
+    children: (
+      <Card style={cardStyle} title="API tokens"
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { setNewlyCreatedToken(null); setTokenModalOpen(true); }}>New token</Button>}>
+        <Table<ApiToken>
+          dataSource={apiTokens} rowKey="id" loading={apiTokensQuery.isFetching}
+          pagination={false}
+          columns={[
+            { title: 'Name', dataIndex: 'name', render: (n: string) => <Text strong>{n}</Text> },
+            { title: 'User', dataIndex: 'userEmail', render: (e?: string) => e ?? '—' },
+            { title: 'Token', dataIndex: 'prefix', render: (t: string) => <Text code>{t}</Text> },
+            { title: 'Expires', dataIndex: 'expiresAt', render: (d?: string | null) => d ? new Date(d).toLocaleDateString() : 'Never' },
+            { title: 'Last used', dataIndex: 'lastUsedAt', render: (d?: string | null) => d ? new Date(d).toLocaleDateString() : 'Never' },
+            { title: 'Actions', render: (_: unknown, row: ApiToken) => (
+              <Button size="small" danger onClick={() => void handleRevokeToken(row.id)}>Revoke</Button>
+            ) }
+          ]}
+        />
+      </Card>
+    )
+  };
+
   const tabs = [
-    ...(isSuperadmin ? [groupsTab, usersTab] : []),
+    ...(isSuperadmin ? [groupsTab, usersTab, ciDeliveriesTab, apiTokensTab] : []),
     teamsTab
   ];
 
@@ -346,6 +468,54 @@ export default function AccessConsolePage() {
       >
         <Text type="secondary">Team name</Text>
         <Input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="e.g. Web QA" style={{ marginTop: 8 }} />
+      </Modal>
+
+      <Modal
+        title="New API token"
+        open={tokenModalOpen}
+        onCancel={() => { setTokenModalOpen(false); setNewlyCreatedToken(null); }}
+        footer={newlyCreatedToken ? (
+          <Button type="primary" onClick={() => { setTokenModalOpen(false); setNewlyCreatedToken(null); }}>Done</Button>
+        ) : (
+          <Space>
+            <Button onClick={() => setTokenModalOpen(false)}>Cancel</Button>
+            <Button type="primary" loading={createTokenMutation.isPending} onClick={() => void handleCreateToken()}>Create</Button>
+          </Space>
+        )}
+      >
+        {newlyCreatedToken ? (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Alert type="warning" message="Copy this token now — you won't see it again." showIcon />
+            <Input
+              value={newlyCreatedToken}
+              readOnly
+              addonAfter={
+                <CopyOutlined
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => { void navigator.clipboard.writeText(newlyCreatedToken); void message.success('Copied'); }}
+                />
+              }
+            />
+          </Space>
+        ) : (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div>
+              <Text type="secondary">Name</Text>
+              <Input value={tokenName} onChange={(e) => setTokenName(e.target.value)} placeholder="e.g. github-actions-bot" style={{ marginTop: 8 }} />
+            </div>
+            <div>
+              <Text type="secondary">Service-account user</Text>
+              <Select<string>
+                showSearch optionFilterProp="label" style={{ width: '100%', marginTop: 8 }}
+                placeholder="Select a user…"
+                loading={tokenPickerQuery.isLoading}
+                value={tokenUserId || undefined}
+                options={tokenPickerUsers.map((u) => ({ label: u.email, value: u.id }))}
+                onChange={(id) => setTokenUserId(id)}
+              />
+            </div>
+          </Space>
+        )}
       </Modal>
 
       <Modal

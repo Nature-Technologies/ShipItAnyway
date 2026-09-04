@@ -1,6 +1,10 @@
-import { Button, Card, Col, Input, Row, Select, Space, Tag, Typography } from 'antd';
+import { useEffect, useState } from 'react';
+import { Button, Card, Col, Input, Row, Select, Space, Tag, Typography, message } from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useProjectPage } from '../../hooks/useProjectPage';
 import { DEFAULT_DEVICE_OPTIONS, formatCompactDateTime, formatDateTime } from '../../utils';
+import { getProjectGithubConfig, setProjectGithubConfig } from '../../../../api/client';
+import { qk } from '../../../../lib/queryKeys';
 
 const { Text } = Typography;
 
@@ -13,6 +17,7 @@ export default function SettingsTab() {
     channels,
     gates,
     isSuperadmin,
+    projectId,
     projectName,
     setProjectName,
     projectNameError,
@@ -30,6 +35,36 @@ export default function SettingsTab() {
     handleResetProjectSettings,
     openDeleteProjectModal
   } = useProjectPage();
+
+  const qc = useQueryClient();
+  const [ghRepo, setGhRepo] = useState('');
+  const [ghPat, setGhPat] = useState('');
+  const canEditGithub = isSuperadmin || gates.canManageProject;
+
+  const githubQuery = useQuery({
+    queryKey: qk.projectGithubConfig(projectId ?? ''),
+    queryFn: () => getProjectGithubConfig(projectId!),
+    enabled: Boolean(projectId) && canEditGithub
+  });
+  const ghConfig = githubQuery.data;
+
+  useEffect(() => {
+    if (ghConfig?.repo && !ghRepo) setGhRepo(ghConfig.repo);
+  }, [ghConfig?.repo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveGithubMutation = useMutation({
+    mutationFn: () =>
+      setProjectGithubConfig(projectId!, {
+        repo: ghRepo.trim(),
+        ...(ghPat.trim() ? { pat: ghPat.trim() } : {})
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: qk.projectGithubConfig(projectId ?? '') });
+      setGhPat('');
+      void message.success('GitHub config saved');
+    },
+    onError: () => { void message.error('Failed to save GitHub config'); }
+  });
 
   return (
     <Col span={24}>
@@ -212,6 +247,44 @@ export default function SettingsTab() {
             </Card>
           </Col>
         </Row>
+        {canEditGithub && (
+          <Card style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)' }} title="GitHub CI">
+            <Space direction="vertical" size={16} style={{ width: '100%', maxWidth: 480 }}>
+              <div>
+                <Text type="secondary">Repository (owner/repo)</Text>
+                <Input
+                  value={ghRepo}
+                  onChange={(e) => setGhRepo(e.target.value)}
+                  placeholder="e.g. acme/monorepo"
+                  style={{ marginTop: 8 }}
+                />
+              </div>
+              {ghConfig?.ghPatMasked && (
+                <div>
+                  <Text type="secondary">Current PAT</Text>
+                  <Text code style={{ display: 'block', marginTop: 4 }}>{ghConfig.ghPatMasked}</Text>
+                </div>
+              )}
+              <div>
+                <Text type="secondary">New PAT (leave blank to keep existing)</Text>
+                <Input.Password
+                  value={ghPat}
+                  onChange={(e) => setGhPat(e.target.value)}
+                  placeholder="ghp_…"
+                  style={{ marginTop: 8 }}
+                />
+              </div>
+              <Button
+                type="primary"
+                loading={saveGithubMutation.isPending}
+                onClick={() => void saveGithubMutation.mutate()}
+                disabled={!ghRepo.trim()}
+              >
+                Save GitHub config
+              </Button>
+            </Space>
+          </Card>
+        )}
         <Card
           style={{ borderRadius: 20, boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)', borderColor: '#fecaca' }}
           title="Danger zone"

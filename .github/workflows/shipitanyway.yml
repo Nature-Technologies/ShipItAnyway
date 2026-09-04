@@ -1,0 +1,56 @@
+# Sample workflow: trigger a ShipItAnyway E2E suite from CI and gate the PR
+# on the resulting commit status. Copy into a downstream repo.
+name: ShipItAnyway E2E
+on:
+  push:
+  pull_request:
+jobs:
+  ui-tests:
+    runs-on: ubuntu-latest
+    env:
+      SIA_URL: ${{ secrets.SIA_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Real unit-test step so the workflow does visible work on every run.
+      # Replace with your project's test command (e.g. `pnpm test`).
+      - name: Run unit tests
+        run: node --test "tests/*.test.js"
+
+      - name: Trigger ShipItAnyway E2E suite
+        if: ${{ env.SIA_URL != '' }}
+        env:
+          SIA_TOKEN: ${{ secrets.SIA_TOKEN }}
+          SIA_SUITE_ID: ${{ vars.SIA_SUITE_ID }}
+          SIA_ENV_ID: ${{ vars.SIA_ENV_ID }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref }}
+          GH_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_PR: ${{ github.event.number || 0 }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_SERVER: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          CORR="${GH_RUN_ID}-${GH_RUN_ATTEMPT}"
+          RUN_URL="${GH_SERVER}/${GH_REPO}/actions/runs/${GH_RUN_ID}"
+          BODY=$(jq -n \
+            --arg suiteId "$SIA_SUITE_ID" \
+            --arg envId "$SIA_ENV_ID" \
+            --arg repo "$GH_REPO" \
+            --arg sha "$GH_SHA" \
+            --arg ref "$GH_REF" \
+            --argjson pr "${GH_PR:-0}" \
+            --arg corr "$CORR" \
+            --arg runUrl "$RUN_URL" \
+            '{suiteId:$suiteId, environmentId:$envId, ci:{repo:$repo, sha:$sha, ref:$ref, prNumber:$pr, correlationId:$corr, runUrl:$runUrl}}')
+          curl -fsS -X POST "$SIA_URL/ci/trigger" \
+            -H "Authorization: Bearer $SIA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$BODY"

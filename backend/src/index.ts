@@ -14,6 +14,7 @@ import { startTestWorker, stopTestWorker } from './queue/worker';
 import { testQueue } from './queue/queue';
 import { startScheduleWorker, stopScheduleWorker, scheduleQueue } from './queue/schedule-queue';
 import { startReportWorker, stopReportWorker, reportQueue } from './queue/report-queue';
+import { startCiDeliveryWorker, stopCiDeliveryWorker, ciDeliveryQueue } from './queue/ci-delivery-queue';
 import { reportScheduler } from './services/report-scheduler';
 import redis from './redis';
 import { dashboardRoutes } from './routes/dashboard';
@@ -28,12 +29,15 @@ import { projectRoutes } from './routes/projects';
 import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
+import { resolveApiToken } from './utils/api-token';
 import { fixtureRoutes } from './routes/fixtures';
 import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
 import { teamRoutes } from './routes/teams';
 import { inviteRoutes } from './routes/invites';
 import { reportRoutes } from './routes/reports';
+import { apiTokenRoutes } from './routes/api-tokens';
+import { ciRoutes } from './routes/ci';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -134,6 +138,11 @@ async function start() {
     if (isPublic) return;
 
     try {
+      const viaToken = await resolveApiToken(req.headers.authorization);
+      if (viaToken) {
+        req.user = viaToken;
+        return;
+      }
       await req.jwtVerify();
       const payload = req.user as { userId?: string; email?: string } | undefined;
       if (!payload?.userId || !payload.email) {
@@ -223,11 +232,22 @@ async function start() {
   await fastify.register(teamRoutes);
   await fastify.register(inviteRoutes);
   await fastify.register(reportRoutes);
+  await fastify.register(apiTokenRoutes);
+  await fastify.register(ciRoutes);
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();
   startReportWorker();
   await reportScheduler.loadAll();
+  startCiDeliveryWorker();
+
+  // ponytail: in-process interval (matches single-instance assumption); move to BullMQ repeatable if backend is ever scaled
+  const ciReconcileTimer = setInterval(() => {
+    import('./services/ci-reconcile')
+      .then((m) => m.reconcileStuckCiRuns())
+      .catch((e) => console.error('[CI reconcile] failed:', e));
+  }, 5 * 60 * 1000);
+  ciReconcileTimer.unref();
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
 
@@ -268,6 +288,8 @@ async function start() {
       await scheduleQueue.close();
       await stopReportWorker();
       await reportQueue.close();
+      await stopCiDeliveryWorker();
+      await ciDeliveryQueue.close();
       await redis.quit();
       process.exit(0);
     } catch (error) {

@@ -34,5 +34,9 @@ export const qk = {
   invite: (token: string) => ['invite', token] as const,
 
   projectReports: (id: string) => ['project', id, 'reports'] as const,
-  reportSends: (id: string) => ['report', id, 'sends'] as const
+  reportSends: (id: string) => ['report', id, 'sends'] as const,
+
+  ciDeliveries: ['ci-deliveries'] as const,
+  apiTokens: ['api-tokens'] as const,
+  projectGithubConfig: (id: string) => ['project', id, 'github'] as const
 } as const;

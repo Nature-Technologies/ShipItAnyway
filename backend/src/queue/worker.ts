@@ -489,6 +489,11 @@ async function runTest(job: Job<TestJobData>) {
     console.error(`[Worker] Failed to update batch for test run ${testRunId}:`, batchError);
   });
 
+  const { maybeEnqueueCiDelivery } = await import('../services/ci-delivery');
+  await maybeEnqueueCiDelivery(testRunId).catch((ciError) => {
+    console.error(`[Worker] CI delivery enqueue failed for ${testRunId}:`, ciError);
+  });
+
   if (runError) {
     throw runError;
   }

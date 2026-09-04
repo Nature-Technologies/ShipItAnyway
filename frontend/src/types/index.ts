@@ -414,6 +414,11 @@ export interface TestRun {
   }) | null;
   environment?: Environment | null;
   schedule?: Schedule | null;
+  ciRepo?: string | null;
+  ciSha?: string | null;
+  ciPrNumber?: string | null;
+  ciCorrelationId?: string | null;
+  ciRunUrl?: string | null;
 }
 
 export interface PageView {
@@ -495,6 +500,40 @@ export type ReportSend = {
   error: string | null;
   createdAt: string;
 };
+
+export interface CiDelivery {
+  id: string;
+  projectId: string;
+  correlationId: string;
+  repo: string;
+  sha: string;
+  prNumber?: number | null;
+  state: 'PENDING' | 'DELIVERED' | 'FAILED';
+  lastError?: string | null;
+  createdAt: string;
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  userEmail: string;
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createdAt: string;
+}
+
+export interface ApiTokenCreated {
+  id: string;
+  name: string;
+  token: string;
+}
+
+export interface GithubConfig {
+  repo: string;
+  ghPatMasked: string | null;
+}
 
 export type ReportConfigPayload = {
   name: string;

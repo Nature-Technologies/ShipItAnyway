@@ -8,6 +8,7 @@ import {
   getAccessibleProjectIds,
   getAuthUser,
   getProjectAccessStatusCode,
+  maskSecretValue,
   requireScope,
   requireSuperadmin,
   resolveScopes,
@@ -459,6 +460,41 @@ export async function projectRoutes(fastify: FastifyInstance) {
         scopes: [...new Set([...membershipScopes, ...globalScopes])].map(toApiScope).sort()
       };
     }));
+  });
+
+  const GithubConfigSchema = z.object({
+    repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/, 'repo must be "owner/name"'),
+    pat: z.string().min(1).optional()
+  });
+
+  async function requireManage(req: any, reply: any, projectId: string) {
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(projectId, userId, 'project_manage');
+      return true;
+    } catch (error) {
+      reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      return false;
+    }
+  }
+
+  fastify.get<{ Params: { id: string } }>('/projects/:id/github', async (req, reply) => {
+    if (!(await requireManage(req, reply, req.params.id))) return;
+    const p = await prisma.project.findUnique({ where: { id: req.params.id }, select: { ghRepo: true, ghPat: true } });
+    if (!p) return reply.status(404).send({ error: 'Project not found' });
+    return { ghRepo: p.ghRepo, ghPatMasked: p.ghPat ? maskSecretValue(p.ghPat) : null };
+  });
+
+  fastify.put<{ Params: { id: string } }>('/projects/:id/github', async (req, reply) => {
+    if (!(await requireManage(req, reply, req.params.id))) return;
+    const body = GithubConfigSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    const updated = await prisma.project.update({
+      where: { id: req.params.id },
+      data: { ghRepo: body.data.repo, ...(body.data.pat ? { ghPat: body.data.pat } : {}) },
+      select: { ghRepo: true, ghPat: true }
+    });
+    return { ghRepo: updated.ghRepo, ghPatMasked: updated.ghPat ? maskSecretValue(updated.ghPat) : null };
   });
 
   // Teams attached to this project — the true source, independent of whether those teams have

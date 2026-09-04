@@ -20,6 +20,8 @@ model Project {
   fixtures  Fixture[]
   teams     TeamProject[]
   reportConfigs ReportConfig[]
+  ghRepo String?
+  ghPat  String?
 }
 
 model Fixture {
@@ -41,6 +43,21 @@ model User {
   groups          UserGroup[]
   teamMemberships TeamMember[]
   invitesSent     Invite[] @relation("InvitesSent")
+  isServiceAccount Boolean    @default(false)
+  apiTokens        ApiToken[]
+}
+
+model ApiToken {
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique
+  prefix     String
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 model Test {
@@ -87,6 +104,14 @@ model TestRun {
   test        Test      @relation(fields: [testId], references: [id], onDelete: Cascade)
   environment Environment? @relation(fields: [environmentId], references: [id])
   schedule    Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  ciRepo          String?
+  ciSha           String?
+  ciRef           String?
+  ciPrNumber      Int?
+  ciRunUrl        String?
+  ciCorrelationId String?
+
+  @@index([ciCorrelationId])
 }
 
 model TestRunBatch {
@@ -346,4 +371,26 @@ enum ReportSendStatus {
 enum ReportSendTrigger {
   SCHEDULED
   MANUAL
+}
+
+enum CiDeliveryState {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model CiDelivery {
+  id            String          @id @default(cuid())
+  correlationId String          @unique
+  projectId     String
+  repo          String
+  sha           String
+  context       String
+  prNumber      Int?
+  targetUrl     String?
+  state         CiDeliveryState @default(PENDING)
+  attempts      Int             @default(0)
+  lastError     String?
+  lastAttemptAt DateTime?
+  createdAt     DateTime        @default(now())
 }

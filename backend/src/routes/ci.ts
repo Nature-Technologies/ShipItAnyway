@@ -1,0 +1,88 @@
+import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import prisma from '../prisma';
+import { getAuthUser, getProjectAccessStatusCode, requireScope, requireSuperadmin } from '../utils/project-access';
+import { createRunsForSelection } from '../services/run-selection';
+import { suiteContext } from '../services/github';
+import { enqueueCiDelivery } from '../queue/ci-delivery-queue';
+
+const TriggerSchema = z.object({
+  suiteId: z.string().min(1),
+  environmentId: z.string().min(1),
+  ci: z.object({
+    repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
+    sha: z.string().min(1),
+    ref: z.string().optional(),
+    prNumber: z.number().int().optional(),
+    runUrl: z.string().url().optional(),
+    correlationId: z.string().min(1)
+  })
+});
+
+export async function ciRoutes(fastify: FastifyInstance) {
+  fastify.post('/ci/trigger', async (req, reply) => {
+    const body = TriggerSchema.safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    const { suiteId, environmentId, ci } = body.data;
+
+    const suite = await prisma.suite.findUnique({ where: { id: suiteId } });
+    if (!suite) return reply.status(404).send({ error: 'Suite not found' });
+
+    const env = await prisma.environment.findUnique({ where: { id: environmentId } });
+    if (!env || env.projectId !== suite.projectId) {
+      return reply.status(404).send({ error: 'Environment not found for suite project' });
+    }
+
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(suite.projectId, userId, 'runs_trigger');
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+
+    // Idempotency: duplicate correlationId → 202 no-op
+    const existing = await prisma.ciDelivery.findUnique({ where: { correlationId: ci.correlationId } });
+    if (existing) return reply.status(202).send({ correlationId: ci.correlationId, runIds: [] });
+
+    const { runIds } = await createRunsForSelection({
+      suiteId, environmentId, trigger: 'CI', ci
+    });
+
+    if (runIds.length === 0) {
+      return reply.status(422).send({ error: 'Suite has no checks to run' });
+    }
+
+    const context = suiteContext(suite.name);
+    await prisma.ciDelivery.create({
+      data: { correlationId: ci.correlationId, projectId: suite.projectId, repo: ci.repo, sha: ci.sha, context, prNumber: ci.prNumber ?? null, targetUrl: ci.runUrl ?? null }
+    });
+
+    await enqueueCiDelivery(ci.correlationId);
+
+    return reply.status(202).send({ correlationId: ci.correlationId, runIds });
+  });
+
+  async function requireSuper(req: any, reply: any): Promise<boolean> {
+    const { userId } = getAuthUser(req);
+    try {
+      await requireSuperadmin(userId);
+      return true;
+    } catch (error) {
+      reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      return false;
+    }
+  }
+
+  fastify.get('/ci/deliveries', async (req, reply) => {
+    if (!(await requireSuper(req, reply))) return;
+    return prisma.ciDelivery.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+  });
+
+  fastify.post<{ Params: { id: string } }>('/ci/deliveries/:id/resend', async (req, reply) => {
+    if (!(await requireSuper(req, reply))) return;
+    const delivery = await prisma.ciDelivery.findUnique({ where: { id: req.params.id } });
+    if (!delivery) return reply.status(404).send({ error: 'Delivery not found' });
+    await enqueueCiDelivery(delivery.correlationId);
+    return reply.status(202).send({ correlationId: delivery.correlationId });
+  });
+}

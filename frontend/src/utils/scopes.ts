@@ -7,6 +7,7 @@ export type Scope =
   | 'alerts:edit'
   | 'teams:manage'
   | 'members:read'
+  | 'project:manage'
   | 'reports:read'
   | 'reports:edit';
 
@@ -27,6 +28,7 @@ export interface ProjectGates {
   canEditAlerts: boolean;
   canManageTeams: boolean;
   canReadMembers: boolean;
+  canManageProject: boolean;
   canReadReports: boolean;
   canEditReports: boolean;
   readOnly: boolean;
@@ -41,6 +43,7 @@ export function deriveProjectGates(scopes: readonly string[]): ProjectGates {
     canEditAlerts: can(scopes, 'alerts:edit'),
     canManageTeams: can(scopes, 'teams:manage'),
     canReadMembers: can(scopes, 'members:read'),
+    canManageProject: can(scopes, 'project:manage'),
     canReadReports: can(scopes, 'reports:read'),
     canEditReports: can(scopes, 'reports:edit'),
     readOnly: isReadOnly(scopes)

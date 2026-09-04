@@ -312,6 +312,20 @@ export default function RunResultPage() {
                         </Text>
                       </div>
                     )}
+                    {run?.ciSha && (
+                      <div style={{ marginTop: 6 }}>
+                        <Space size={8} wrap>
+                          <Tag color="purple">
+                            {run.ciRepo} @ {run.ciSha.slice(0, 7)}
+                          </Tag>
+                          {run.ciPrNumber && run.ciRepo && (
+                            <a href={`https://github.com/${run.ciRepo}/pull/${run.ciPrNumber}`} target="_blank" rel="noreferrer">
+                              <Tag color="geekblue">PR #{run.ciPrNumber}</Tag>
+                            </a>
+                          )}
+                        </Space>
+                      </div>
+                    )}
                   </div>
                   {isActive && <Tag color="processing">Live polling</Tag>}
                 </Space>
