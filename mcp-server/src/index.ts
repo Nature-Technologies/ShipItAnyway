@@ -3,7 +3,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
-import { client as drivenClient, type DrivenClient, type PageView, type Step } from './client.js';
+import { makeClient, type SiaClient, type PageView, type Step } from './client.js';
+import { reportingTools } from './tools/reporting.js';
+import { executionTools } from './tools/execution.js';
 
 // ── content helpers ───────────────────────────────────────────────────────────
 
@@ -23,7 +25,7 @@ function pageViewContent(view: PageView, step?: unknown): CallToolResult {
 export type ToolDef = { handler: (args: Record<string, unknown>) => Promise<CallToolResult> };
 export type ToolRecord = Record<string, ToolDef>;
 
-function textContent(payload: unknown): CallToolResult {
+export function textContent(payload: unknown): CallToolResult {
   return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
 }
 
@@ -38,7 +40,7 @@ interface RecordingState { active: ActiveSession | null; finished: FinishedRecor
 
 // ── Group: Recording — session lifecycle + per-action browser drive ───────────
 
-function recordingTools(client: DrivenClient, state: RecordingState): ToolRecord {
+function recordingTools(client: SiaClient, state: RecordingState): ToolRecord {
   const requireActive = (): ActiveSession => {
     if (!state.active) throw new Error('No active recording session. Call start_recording first.');
     return state.active;
@@ -127,7 +129,7 @@ function recordingTools(client: DrivenClient, state: RecordingState): ToolRecord
 
 // ── Group: Tests — persist / validate / manage recorded tests ─────────────────
 
-function testTools(client: DrivenClient, state: RecordingState): ToolRecord {
+function testTools(client: SiaClient, state: RecordingState): ToolRecord {
   // A recording can only be saved once it is finished: no session may still be active,
   // and a finished capture must exist.
   const requireSavable = (): FinishedRecording => {
@@ -180,9 +182,14 @@ function testTools(client: DrivenClient, state: RecordingState): ToolRecord {
 
 // ── buildTools: merge the operation groups over one shared recording state ─────
 
-export function buildTools(client: DrivenClient): ToolRecord {
+export function buildTools(client: SiaClient): ToolRecord {
   const state: RecordingState = { active: null, finished: null };
-  return { ...recordingTools(client, state), ...testTools(client, state) };
+  return {
+    ...recordingTools(client, state),
+    ...testTools(client, state),
+    ...reportingTools(client),
+    ...executionTools(client)
+  };
 }
 
 // ── per-tool Zod input schemas (raw shapes for registerTool) ──────────────────
@@ -204,13 +211,20 @@ const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
   list_tests:       { projectId: z.string().optional() },
   get_test:         { testId: z.string() },
   delete_test:      { testId: z.string() },
+  // Reporting
+  list_projects:    {},
+  list_runs:        { projectId: z.string(), status: z.string().optional(), trigger: z.string().optional(), since: z.string().optional(), testId: z.string().optional(), limit: z.coerce.number().optional(), cursor: z.string().optional() },
+  get_run:          { runId: z.string() },
+  get_run_batch:    { batchId: z.string() },
+  // Execution
+  trigger_run:      { testId: z.string().optional(), suiteId: z.string().optional(), environmentId: z.string() },
 };
 
 // ── stdio server entry point ──────────────────────────────────────────────────
 
 export async function startServer(): Promise<void> {
   const server = new McpServer({ name: 'shipitanyway-recorder', version: '0.1.0' });
-  const tools = buildTools(drivenClient);
+  const tools = buildTools(makeClient(process.env.BACKEND_TOKEN ?? '', process.env.BACKEND_URL));
 
   for (const [name, tool] of Object.entries(tools)) {
     const schema = toolSchemas[name] ?? {};
