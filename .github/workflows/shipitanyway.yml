@@ -7,9 +7,22 @@ on:
 jobs:
   ui-tests:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SIA_URL != '' }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Real unit-test step so the workflow does visible work on every run.
+      # Replace with your project's test command (e.g. `pnpm test`).
+      - name: Run unit tests
+        run: node --test "tests/*.test.js"
+
       - name: Trigger ShipItAnyway E2E suite
+        if: ${{ secrets.SIA_URL != '' }}
         env:
           SIA_URL: ${{ secrets.SIA_URL }}
           SIA_TOKEN: ${{ secrets.SIA_TOKEN }}
