@@ -141,9 +141,11 @@ export async function startHttpServer(port = Number(process.env.MCP_PORT) || 310
     }
 
     // Origin / DNS-rebinding protection built into the transport.
+    let sessionStored = false;
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sid) => {
+        sessionStored = true;
         const timer = setTimeout(() => dropSession(sid), SESSION_TTL_MS);
         sessions.set(sid, { transport, server, timer });
       },
@@ -151,6 +153,7 @@ export async function startHttpServer(port = Number(process.env.MCP_PORT) || 310
       allowedOrigins: ALLOWED_ORIGINS
     });
     await server.connect(transport);
+    res.on('close', () => { if (!sessionStored) { transport.close().catch(() => undefined); server.close().catch(() => undefined); } });
     await transport.handleRequest(req, res, parsedBody);
   });
   httpServer.on('error', (err) => { console.error('[shipitanyway-mcp] server error', err); process.exit(1); });
