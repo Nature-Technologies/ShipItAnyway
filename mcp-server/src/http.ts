@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { makeClient } from './client.js';
 import { buildTools, toolSchemas } from './index.js';
 import { groupsForScopes } from './gating.js';
+import { registerTriggerTask } from './tasks.js';
 
 // Static name → capability group map (mirrors buildTools' groups).
 const AUTHORING = new Set(['start_recording','observe','navigate','click','type','select','upload','assert','finish_recording','save_test','validate_test','list_tests','get_test','delete_test']);
@@ -33,8 +34,21 @@ export async function buildServerForToken(token: string): Promise<McpServer> {
   const server = new McpServer({ name: 'shipitanyway', version: '0.2.0' });
   const tools = buildTools(client);
   const allowed = new Set(gatedToolNames(caps.scopes, Object.keys(tools)));
+
+  // Attempt async task variant for trigger_run; fall back to sync if the experimental API throws.
+  let triggerRunRegistered = false;
+  if (allowed.has('trigger_run')) {
+    try {
+      registerTriggerTask(server, client);
+      triggerRunRegistered = true;
+    } catch {
+      // experimental API unavailable at runtime — sync fallback registers below
+    }
+  }
+
   for (const [name, tool] of Object.entries(tools)) {
     if (!allowed.has(name)) continue;
+    if (name === 'trigger_run' && triggerRunRegistered) continue;
     const schema = toolSchemas[name] ?? {};
     server.registerTool(name, { inputSchema: schema }, (args) => tool.handler(args as Record<string, unknown>));
   }
