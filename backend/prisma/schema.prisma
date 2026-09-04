@@ -285,6 +285,7 @@ enum RunTrigger {
   MANUAL
   SCHEDULE
   CI
+  MCP
 }
 
 enum BatchStatus {

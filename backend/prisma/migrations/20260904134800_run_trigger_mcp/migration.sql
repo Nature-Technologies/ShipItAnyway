@@ -1,0 +1,1 @@
+ALTER TYPE "RunTrigger" ADD VALUE 'MCP';
