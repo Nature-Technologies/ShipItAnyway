@@ -43,6 +43,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: frontendPort,
       host: true,
+      // Allow in-network access by compose service name so the recorder browser (running inside the
+      // backend container) can drive SIA's own UI at http://frontend:5173 for dogfooding.
+      allowedHosts: ['frontend', 'localhost', '127.0.0.1'],
       // Bind mounts on Windows/macOS don't emit inotify events; poll so HMR sees host edits.
       watch: env.VITE_USE_POLLING ? { usePolling: true } : undefined,
       proxy: {

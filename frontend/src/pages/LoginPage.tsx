@@ -27,8 +27,11 @@ export default function LoginPage() {
     try {
       await login(values.email, values.password);
       navigate('/dashboard');
-    } catch {
-      setError('Invalid email or password');
+    } catch (err) {
+      // Only a 401 means the credentials were wrong. A missing response (network/CORS)
+      // or a 5xx must not masquerade as "invalid credentials".
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setError(status === 401 ? 'Invalid email or password' : 'Could not reach the server. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }

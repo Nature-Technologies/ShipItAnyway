@@ -1,39 +1,4 @@
-// ponytail: single configured service token; swap for a Phase-2 scoped project token
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3000';
-const BACKEND_TOKEN = process.env.BACKEND_TOKEN ?? '';
-
-function authHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${BACKEND_TOKEN}`,
-  };
-}
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-  return res.json() as Promise<T>;
-}
-
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-  return res.json() as Promise<T>;
-}
-
-async function del(path: string): Promise<void> {
-  // No body — omit Content-Type so the backend's JSON parser doesn't reject an empty body.
-  const res = await fetch(`${BACKEND_URL}${path}`, {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${BACKEND_TOKEN}` },
-  });
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-  // 204 No Content — nothing to parse
-}
+type FetchLike = typeof fetch;
 
 export interface PageView {
   screenshot: string;
@@ -67,37 +32,63 @@ export interface ValidationReport {
   [k: string]: unknown;
 }
 
-export const client = {
-  // ── recording session ───────────────────────────────────────────────────────
-  startDriven(input: { projectId: string; url: string; device?: string }): Promise<{ sessionId: string; steps: Step[]; view: PageView }> {
-    return post<{ sessionId: string; steps: Step[]; view: PageView }>('/recordings/driven/start', input);
-  },
-  action(sessionId: string, step: Step): Promise<{ step: Step; view: PageView }> {
-    return post<{ step: Step; view: PageView }>(`/recordings/driven/${sessionId}/action`, step);
-  },
-  observe(sessionId: string): Promise<{ view: PageView }> {
-    return get<{ view: PageView }>(`/recordings/driven/${sessionId}/observe`);
-  },
-  stopDriven(sessionId: string): Promise<{ steps: Step[] }> {
-    return post<{ steps: Step[] }>(`/recordings/driven/${sessionId}/stop`, {});
-  },
+export interface SiaClient {
+  // recording session (unchanged behaviour)
+  startDriven(input: { projectId: string; url: string; device?: string }): Promise<{ sessionId: string; steps: Step[]; view: PageView }>;
+  action(sessionId: string, step: Step): Promise<{ step: Step; view: PageView }>;
+  observe(sessionId: string): Promise<{ view: PageView }>;
+  stopDriven(sessionId: string): Promise<{ steps: Step[] }>;
+  createTest(projectId: string, input: CreateTestInput): Promise<Test>;
+  validateSteps(input: { projectId: string; url: string; steps: Step[]; device?: string }): Promise<ValidationReport>;
+  listTests(projectId: string): Promise<Test[]>;
+  getTest(testId: string): Promise<Test>;
+  deleteTest(testId: string): Promise<void>;
+  // reporting / execution (new)
+  getCapabilities(): Promise<{ userId: string; email: string; isSuperadmin: boolean; scopes: string[] }>;
+  listProjects(): Promise<Array<{ id: string; name: string }>>;
+  listRuns(projectId: string, q?: Record<string, string | number | undefined>): Promise<{ runs: unknown[]; nextCursor: string | null }>;
+  getRun(id: string): Promise<unknown>;
+  getRunBatch(id: string): Promise<unknown>;
+  triggerRun(body: { testId?: string; suiteId?: string; environmentId: string }): Promise<{ runIds: string[]; batchIds: string[] }>;
+}
 
-  // ── test persistence ──────────────────────────────────────────────────────────
-  createTest(projectId: string, input: CreateTestInput): Promise<Test> {
-    return post<Test>(`/projects/${projectId}/tests`, input);
-  },
-  validateSteps(input: { projectId: string; url: string; steps: Step[]; device?: string }): Promise<ValidationReport> {
-    return post<ValidationReport>('/tests/validate', input);
-  },
-  listTests(projectId: string): Promise<Test[]> {
-    return get<Test[]>(`/projects/${projectId}/tests`);
-  },
-  getTest(testId: string): Promise<Test> {
-    return get<Test>(`/tests/${testId}`);
-  },
-  deleteTest(testId: string): Promise<void> {
-    return del(`/tests/${testId}`);
-  },
-};
+export function makeClient(token: string, baseUrl = process.env.BACKEND_URL ?? 'http://localhost:3000', fetchImpl: FetchLike = fetch): SiaClient {
+  const authHeaders = (): Record<string, string> => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` });
+  const post = async <T>(path: string, body: unknown): Promise<T> => {
+    const res = await fetchImpl(`${baseUrl}${path}`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.json() as Promise<T>;
+  };
+  const get = async <T>(path: string): Promise<T> => {
+    const res = await fetchImpl(`${baseUrl}${path}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.json() as Promise<T>;
+  };
+  const del = async (path: string): Promise<void> => {
+    const res = await fetchImpl(`${baseUrl}${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  };
+  const qs = (q?: Record<string, string | number | undefined>): string => {
+    if (!q) return '';
+    const parts = Object.entries(q).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
+    return parts.length ? `?${parts.join('&')}` : '';
+  };
 
-export type DrivenClient = typeof client;
+  return {
+    startDriven: (input) => post('/recordings/driven/start', input),
+    action: (sessionId, step) => post(`/recordings/driven/${sessionId}/action`, step),
+    observe: (sessionId) => get(`/recordings/driven/${sessionId}/observe`),
+    stopDriven: (sessionId) => post(`/recordings/driven/${sessionId}/stop`, {}),
+    createTest: (projectId, input) => post(`/projects/${projectId}/tests`, input),
+    validateSteps: (input) => post('/tests/validate', input),
+    listTests: (projectId) => get(`/projects/${projectId}/tests`),
+    getTest: (testId) => get(`/tests/${testId}`),
+    deleteTest: (testId) => del(`/tests/${testId}`),
+    getCapabilities: () => get('/me/capabilities'),
+    listProjects: () => get('/projects'),
+    listRuns: (projectId, q) => get(`/projects/${projectId}/runs${qs(q)}`),
+    getRun: (id) => get(`/runs/${id}`),
+    getRunBatch: (id) => get(`/run-batches/${id}`),
+    triggerRun: (body) => post('/mcp/trigger', body)
+  };
+}

@@ -73,21 +73,23 @@ services:
       backend:
         condition: service_healthy
 
-  # MCP server — stdio transport. Agent CLIs (Claude Code, Codex, Grok) connect by spawning this
-  # container: `docker run -i --network <project>_default -e BACKEND_URL=... -e BACKEND_TOKEN=...
-  # shipitanyway-mcp-server`. The container stays idle in compose; it is only useful when an agent
-  # pipes stdin/stdout to it. For local dev without compose, run:
-  #   BACKEND_URL=http://localhost:3000 BACKEND_TOKEN=<token> npx tsx mcp-server/src/index.ts
+  # MCP server — HTTP Streamable transport. Agent CLIs connect over http://localhost:${MCP_HOST_PORT:-3100}/mcp.
   mcp-server:
     build:
       context: .
       dockerfile: mcp-server/Dockerfile
     restart: unless-stopped
-    stdin_open: true
-    tty: false
+    ports:
+      - "${MCP_HOST_PORT:-3100}:3100"
     environment:
       BACKEND_URL: http://backend:3000
-      BACKEND_TOKEN: ${BACKEND_TOKEN:-}
+      MCP_PORT: "3100"
+      MCP_ALLOWED_ORIGINS: "${MCP_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}"
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

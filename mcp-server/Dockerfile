@@ -14,6 +14,6 @@ COPY mcp-server/src ./mcp-server/src
 # in /app/node_modules, so importing tsx/esm from /app fails with ERR_MODULE_NOT_FOUND.
 WORKDIR /app/mcp-server
 
-# stdio-only transport: agent CLI spawns this container with `docker run -i`.
-# For local dev without compose, run: npx tsx mcp-server/src/index.ts
+EXPOSE 3100
+# HTTP Streamable transport; agents connect over http://<host>:3100/mcp
 CMD ["node", "--import", "tsx/esm", "src/index.ts"]

@@ -279,12 +279,15 @@ enum RunStatus {
   RUNNING
   PASSED
   FAILED
+  ERROR
+  CANCELLED
 }
 
 enum RunTrigger {
   MANUAL
   SCHEDULE
   CI
+  MCP
 }
 
 enum BatchStatus {

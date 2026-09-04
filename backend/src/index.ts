@@ -38,6 +38,7 @@ import { inviteRoutes } from './routes/invites';
 import { reportRoutes } from './routes/reports';
 import { apiTokenRoutes } from './routes/api-tokens';
 import { ciRoutes } from './routes/ci';
+import { mcpRoutes } from './routes/mcp';
 
 const envCandidates = [
   path.resolve(process.cwd(), '.env'),
@@ -91,8 +92,11 @@ async function start() {
   const frontendOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:5173',
     process.env.FRONTEND_DEV_URL || 'http://localhost:5173',
+    // The compose-internal frontend origin, so a browser loading the app by service
+    // name (e.g. the in-container recorder dogfooding SIA's own UI) isn't CORS-blocked.
+    process.env.FRONTEND_INTERNAL_URL,
     'http://127.0.0.1:5173'
-  ];
+  ].filter((o): o is string => Boolean(o));
 
   await fastify.register(cors, {
     origin: frontendOrigins,
@@ -234,6 +238,7 @@ async function start() {
   await fastify.register(reportRoutes);
   await fastify.register(apiTokenRoutes);
   await fastify.register(ciRoutes);
+  await fastify.register(mcpRoutes);
   await startTestWorker();
   startScheduleWorker();
   await schedulerService.loadAll();

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { enqueueTestRun } from '../queue/batch-sequencer';
-import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
+import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, redactEnvironmentVariables, requireScope } from '../utils/project-access';
 import { buildDataCaseSnapshot, getTestDataCases } from '../utils/test-data';
 
 const TRACES_DIR = path.resolve(process.env.TRACES_DIR || './traces');
@@ -226,13 +226,24 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     if (!run) return reply.status(404).send({ error: 'Run not found' });
     const { userId } = getAuthUser(req);
+    let scopes: Awaited<ReturnType<typeof requireScope>>;
     try {
-      await requireScope(run.test.project.id, userId, 'runs_read');
+      scopes = await requireScope(run.test.project.id, userId, 'runs_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
+    // This route feeds both the web UI and external MCP agents. Never leak write-only project
+    // secrets (the GitHub PAT) or raw environment secrets to a runs:read caller — mask env values
+    // unless the caller holds environments:reveal-secrets.
+    const { ghPat: _ghPat, ...safeProject } = run.test.project;
+    const canReveal = scopes.has('environments_reveal_secrets');
+    const safeEnvironment = run.environment
+      ? { ...run.environment, variables: redactEnvironmentVariables((run.environment.variables ?? {}) as Record<string, string>, !canReveal) }
+      : run.environment;
     return {
       ...run,
+      test: { ...run.test, project: safeProject },
+      environment: safeEnvironment,
       trace: await buildTraceMetadata(run)
     };
   });
@@ -308,6 +319,72 @@ export async function runRoutes(fastify: FastifyInstance) {
       runs: batch.runs
     };
   });
+
+  // GET /projects/:projectId/runs — keyset-paginated project-wide run listing (MCP Phase 4.2)
+  const ListRunsQuery = z.object({
+    status: z.enum(['PENDING', 'RUNNING', 'PASSED', 'FAILED', 'ERROR', 'CANCELLED']).optional(),
+    trigger: z.enum(['MANUAL', 'SCHEDULE', 'CI', 'MCP']).optional(),
+    since: z.string().datetime().optional(),
+    testId: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    cursor: z.string().optional()
+  });
+
+  function decodeCursor(cursor?: string): { startedAt: Date; id: string } | null {
+    if (!cursor) return null;
+    const [iso, id] = Buffer.from(cursor, 'base64').toString('utf8').split('|');
+    if (!iso || !id) return null;
+    return { startedAt: new Date(iso), id };
+  }
+
+  function encodeCursor(run: { startedAt: Date; id: string }): string {
+    return Buffer.from(`${run.startedAt.toISOString()}|${run.id}`, 'utf8').toString('base64');
+  }
+
+  fastify.get<{ Params: { projectId: string }; Querystring: Record<string, string> }>(
+    '/projects/:projectId/runs',
+    async (req, reply) => {
+      const q = ListRunsQuery.safeParse(req.query ?? {});
+      if (!q.success) return reply.status(400).send({ error: q.error.flatten() });
+
+      const { userId } = getAuthUser(req);
+      try {
+        await requireScope(req.params.projectId, userId, 'runs_read');
+      } catch (error) {
+        return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+      }
+
+      const cur = decodeCursor(q.data.cursor);
+      const rows = await prisma.testRun.findMany({
+        where: {
+          test: { projectId: req.params.projectId },
+          ...(q.data.status ? { status: q.data.status } : {}),
+          ...(q.data.trigger ? { trigger: q.data.trigger } : {}),
+          ...(q.data.testId ? { testId: q.data.testId } : {}),
+          ...(q.data.since ? { startedAt: { gte: new Date(q.data.since) } } : {}),
+          ...(cur ? { OR: [
+            { startedAt: { lt: cur.startedAt } },
+            { startedAt: cur.startedAt, id: { lt: cur.id } }
+          ] } : {})
+        },
+        orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+        take: q.data.limit + 1,
+        include: { test: { select: { name: true } } }
+      });
+
+      const hasMore = rows.length > q.data.limit;
+      const page = hasMore ? rows.slice(0, q.data.limit) : rows;
+      const runs = page.map((r) => ({
+        id: r.id, testId: r.testId, testName: r.test.name,
+        status: r.status, trigger: r.trigger,
+        startedAt: r.startedAt, finishedAt: r.finishedAt, durationMs: r.durationMs,
+        environmentId: r.environmentId, batchId: r.batchId,
+        ciRepo: r.ciRepo, ciSha: r.ciSha, ciPrNumber: r.ciPrNumber, ciRunUrl: r.ciRunUrl
+      }));
+      const last = page[page.length - 1];
+      return { runs, nextCursor: hasMore && last ? encodeCursor(last) : null };
+    }
+  );
 
   fastify.get<{ Params: { id: string } }>('/tests/:id/runs', async (req, reply) => {
     const test = await prisma.test.findUnique({

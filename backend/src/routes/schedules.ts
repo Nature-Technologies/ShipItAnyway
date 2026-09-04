@@ -56,7 +56,7 @@ async function loadScheduleOr404(id: string) {
   return prisma.schedule.findUnique({ where: { id } });
 }
 
-type RunStatus = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED';
+type RunStatus = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'CANCELLED';
 
 function groupRunsByTick(runs: Array<{
   id: string;
