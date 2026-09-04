@@ -7,6 +7,8 @@ on:
 jobs:
   ui-tests:
     runs-on: ubuntu-latest
+    env:
+      SIA_URL: ${{ secrets.SIA_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,9 +24,8 @@ jobs:
         run: node --test "tests/*.test.js"
 
       - name: Trigger ShipItAnyway E2E suite
-        if: ${{ secrets.SIA_URL != '' }}
+        if: ${{ env.SIA_URL != '' }}
         env:
-          SIA_URL: ${{ secrets.SIA_URL }}
           SIA_TOKEN: ${{ secrets.SIA_TOKEN }}
           SIA_SUITE_ID: ${{ vars.SIA_SUITE_ID }}
           SIA_ENV_ID: ${{ vars.SIA_ENV_ID }}
