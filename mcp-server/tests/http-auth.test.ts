@@ -17,3 +17,13 @@ test('gatedToolNames returns only reporting tools for a viewer', () => {
   assert.ok(!names.includes('trigger_run'));
   assert.ok(!names.includes('start_recording'));
 });
+test('gatedToolNames returns authoring + reporting + execution for full scopes', () => {
+  const names = gatedToolNames(['runs:read','checks:read','checks:edit','runs:trigger'], ['start_recording','save_test','list_projects','list_runs','get_run','get_run_batch','trigger_run']);
+  assert.ok(names.includes('trigger_run'));
+  assert.ok(names.includes('start_recording'));
+  assert.ok(names.includes('list_runs'));
+});
+test('gatedToolNames returns empty for irrelevant scopes', () => {
+  const names = gatedToolNames(['members:read'], ['start_recording','save_test','list_projects','list_runs','get_run','get_run_batch','trigger_run']);
+  assert.equal(names.length, 0);
+});

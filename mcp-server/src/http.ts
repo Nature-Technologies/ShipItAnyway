@@ -41,13 +41,31 @@ export async function buildServerForToken(token: string): Promise<McpServer> {
   return server;
 }
 
-const ALLOWED_ORIGINS = (process.env.MCP_ALLOWED_ORIGINS ?? 'http://localhost,http://127.0.0.1').split(',').map((s) => s.trim()).filter(Boolean);
+const DEFAULT_ORIGINS = ['http://localhost', 'http://127.0.0.1'];
+const _configured = (process.env.MCP_ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+if (_configured.length === 0 && process.env.MCP_ALLOWED_ORIGINS !== undefined) {
+  console.warn('[shipitanyway-mcp] MCP_ALLOWED_ORIGINS is set but empty; falling back to default origins');
+}
+const ALLOWED_ORIGINS = _configured.length > 0 ? _configured : DEFAULT_ORIGINS;
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
+const MAX_BODY_BYTES = 1_000_000; // 1 MB
+
+// Returns parsed body, or a sentinel object to signal caller to respond with an error code.
+async function readBody(req: IncomingMessage): Promise<{ ok: true; body: unknown } | { ok: false; status: 400 | 413 }> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  if (chunks.length === 0) return undefined;
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  let total = 0;
+  for await (const c of req) {
+    const buf = c as Buffer;
+    total += buf.byteLength;
+    if (total > MAX_BODY_BYTES) return { ok: false, status: 413 };
+    chunks.push(buf);
+  }
+  if (chunks.length === 0) return { ok: true, body: undefined };
+  try {
+    return { ok: true, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) };
+  } catch {
+    return { ok: false, status: 400 };
+  }
 }
 
 export async function startHttpServer(port = Number(process.env.MCP_PORT) || 3100): Promise<void> {
@@ -66,6 +84,17 @@ export async function startHttpServer(port = Number(process.env.MCP_PORT) || 310
       return;
     }
 
+    let parsedBody: unknown;
+    if (req.method === 'POST') {
+      const result = await readBody(req);
+      if (!result.ok) {
+        const msg = result.status === 413 ? 'Payload Too Large' : 'Invalid JSON';
+        res.writeHead(result.status, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: msg }));
+        return;
+      }
+      parsedBody = result.body;
+    }
+
     // Origin / DNS-rebinding protection built into the transport.
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
@@ -74,8 +103,8 @@ export async function startHttpServer(port = Number(process.env.MCP_PORT) || 310
     });
     res.on('close', () => { transport.close(); server.close(); });
     await server.connect(transport);
-    const body = req.method === 'POST' ? await readBody(req) : undefined;
-    await transport.handleRequest(req, res, body);
+    await transport.handleRequest(req, res, parsedBody);
   });
+  httpServer.on('error', (err) => { console.error('[shipitanyway-mcp] server error', err); process.exit(1); });
   httpServer.listen(port, () => console.error(`[shipitanyway-mcp] http://0.0.0.0:${port}/mcp`));
 }
