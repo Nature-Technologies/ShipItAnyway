@@ -41,7 +41,7 @@ function summarizeError(error?: string | null) {
 }
 
 function getTriggerLabel(run: DashboardRun) {
-  return run.trigger === 'SCHEDULE' ? 'Schedule' : run.trigger === 'CI' ? 'CI' : 'Manual';
+  return run.trigger === 'SCHEDULE' ? 'Schedule' : run.trigger === 'CI' ? 'CI' : run.trigger === 'MCP' ? 'MCP' : 'Manual';
 }
 
 async function loadRuns(params: {
