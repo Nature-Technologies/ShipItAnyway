@@ -279,6 +279,8 @@ enum RunStatus {
   RUNNING
   PASSED
   FAILED
+  ERROR
+  CANCELLED
 }
 
 enum RunTrigger {

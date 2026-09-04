@@ -35,16 +35,12 @@ export async function buildServerForToken(token: string): Promise<McpServer> {
   const tools = buildTools(client);
   const allowed = new Set(gatedToolNames(caps.scopes, Object.keys(tools)));
 
-  // Attempt async task variant for trigger_run; fall back to sync if the experimental API throws.
-  let triggerRunRegistered = false;
-  if (allowed.has('trigger_run')) {
-    try {
-      registerTriggerTask(server, client);
-      triggerRunRegistered = true;
-    } catch {
-      // experimental API unavailable at runtime — sync fallback registers below
-    }
-  }
+  // ponytail: task path skipped — handleAutomaticTaskPolling needs extra.taskStore which requires
+  // McpServer to be constructed with { taskStore } AND a background watcher to call storeTaskResult.
+  // Both gaps are in tasks.ts / http.ts; enable when wired up. Sync path (registered below) is
+  // the baseline gate per the phase spec. registerTriggerTask import kept for future re-enable.
+  void registerTriggerTask; // suppress unused-import lint
+  const triggerRunRegistered = false;
 
   for (const [name, tool] of Object.entries(tools)) {
     if (!allowed.has(name)) continue;
@@ -82,11 +78,46 @@ async function readBody(req: IncomingMessage): Promise<{ ok: true; body: unknown
   }
 }
 
+// ponytail: in-memory session map — fine for single-process; swap for Redis if multi-instance matters
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 min
+const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer; timer: ReturnType<typeof setTimeout> }>();
+
+function dropSession(id: string): void {
+  const s = sessions.get(id);
+  if (!s) return;
+  sessions.delete(id);
+  s.transport.close().catch(() => undefined);
+  s.server.close().catch(() => undefined);
+}
+
 export async function startHttpServer(port = Number(process.env.MCP_PORT) || 3100): Promise<void> {
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (req.url === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ status: 'ok' })); return; }
     if (!req.url?.startsWith('/mcp')) { res.writeHead(404).end(); return; }
 
+    const sessionId = req.headers['mcp-session-id'];
+    const existing = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined;
+
+    if (existing) {
+      // Route to the existing session's transport — token already verified at session creation.
+      let parsedBody: unknown;
+      if (req.method === 'POST') {
+        const result = await readBody(req);
+        if (!result.ok) {
+          const msg = result.status === 413 ? 'Payload Too Large' : 'Invalid JSON';
+          res.writeHead(result.status, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: msg }));
+          return;
+        }
+        parsedBody = result.body;
+      }
+      // Refresh TTL
+      clearTimeout(existing.timer);
+      existing.timer = setTimeout(() => dropSession(sessionId as string), SESSION_TTL_MS);
+      await existing.transport.handleRequest(req, res, parsedBody);
+      return;
+    }
+
+    // New session — authenticate and build a gated server.
     const token = extractBearer(req.headers.authorization);
     if (!token) { res.writeHead(401, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Unauthorized' })); return; }
 
@@ -112,10 +143,13 @@ export async function startHttpServer(port = Number(process.env.MCP_PORT) || 310
     // Origin / DNS-rebinding protection built into the transport.
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => {
+        const timer = setTimeout(() => dropSession(sid), SESSION_TTL_MS);
+        sessions.set(sid, { transport, server, timer });
+      },
       enableDnsRebindingProtection: true,
       allowedOrigins: ALLOWED_ORIGINS
     });
-    res.on('close', () => { transport.close(); server.close(); });
     await server.connect(transport);
     await transport.handleRequest(req, res, parsedBody);
   });
