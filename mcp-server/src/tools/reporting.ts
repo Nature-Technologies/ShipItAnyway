@@ -1,5 +1,5 @@
 import type { SiaClient } from '../client.js';
-import { textContent, type ToolRecord } from '../index.js';
+import { textContent, type ToolRecord } from '../tooling.js';
 
 export function reportingTools(client: SiaClient): ToolRecord {
   return {

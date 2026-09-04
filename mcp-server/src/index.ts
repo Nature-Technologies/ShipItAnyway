@@ -4,8 +4,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { makeClient, type SiaClient, type PageView, type Step } from './client.js';
+import { textContent, type ToolDef, type ToolRecord } from './tooling.js';
 import { reportingTools } from './tools/reporting.js';
 import { executionTools } from './tools/execution.js';
+
+export { textContent } from './tooling.js';
+export type { ToolDef, ToolRecord } from './tooling.js';
 
 // ── content helpers ───────────────────────────────────────────────────────────
 
@@ -18,15 +22,6 @@ function pageViewContent(view: PageView, step?: unknown): CallToolResult {
       { type: 'text' as const, text: lines.join('\n') },
     ],
   };
-}
-
-// ── tool record type (testable without the SDK) ───────────────────────────────
-
-export type ToolDef = { handler: (args: Record<string, unknown>) => Promise<CallToolResult> };
-export type ToolRecord = Record<string, ToolDef>;
-
-export function textContent(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
 }
 
 // ── recording state shared across the tool groups ─────────────────────────────
