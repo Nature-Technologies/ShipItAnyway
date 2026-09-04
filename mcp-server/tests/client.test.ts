@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeClient } from '../src/client.ts';
+import { makeClient } from '../src/client.js';
 
 function fakeFetch(record: { url?: string; auth?: string; method?: string }, body: unknown) {
-  return async (url: string, init?: RequestInit) => {
-    record.url = url;
+  return async (url: string | URL | Request, init?: RequestInit) => {
+    record.url = String(url);
     record.method = init?.method ?? 'GET';
     record.auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
     return { ok: true, status: 200, json: async () => body, text: async () => '' } as Response;

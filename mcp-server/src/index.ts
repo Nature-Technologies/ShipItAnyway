@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { pathToFileURL } from 'node:url';
 import { makeClient, type SiaClient, type PageView, type Step } from './client.js';
@@ -189,7 +187,7 @@ export function buildTools(client: SiaClient): ToolRecord {
 
 // ── per-tool Zod input schemas (raw shapes for registerTool) ──────────────────
 
-const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
+export const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
   // Recording
   start_recording:  { projectId: z.string(), url: z.string(), device: z.string().optional() },
   navigate:         { url: z.string() },
@@ -215,28 +213,9 @@ const toolSchemas: Record<string, Record<string, z.ZodTypeAny>> = {
   trigger_run:      { testId: z.string().optional(), suiteId: z.string().optional(), environmentId: z.string() },
 };
 
-// ── stdio server entry point ──────────────────────────────────────────────────
-
-export async function startServer(): Promise<void> {
-  const server = new McpServer({ name: 'shipitanyway-recorder', version: '0.1.0' });
-  const tools = buildTools(makeClient(process.env.BACKEND_TOKEN ?? '', process.env.BACKEND_URL));
-
-  for (const [name, tool] of Object.entries(tools)) {
-    const schema = toolSchemas[name] ?? {};
-    // SDK calls the callback as (args, extra) when inputSchema is provided; we only need args.
-    server.registerTool(
-      name,
-      { inputSchema: schema },
-      (args) => tool.handler(args as Record<string, unknown>)
-    );
-  }
-
-  await server.connect(new StdioServerTransport());
-}
-
 // I3: pathToFileURL normalises a relative argv[1] so comparison against import.meta.url is reliable.
 // Without this, `node --import tsx/esm src/index.ts` sets argv[1] to a relative path while
 // import.meta.url is absolute → the bare === check would never fire.
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  startServer().catch(console.error);
+  import('./http.js').then((m) => m.startHttpServer().catch(console.error));
 }
