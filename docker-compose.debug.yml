@@ -89,16 +89,28 @@ services:
       backend:
         condition: service_healthy
 
-  # mcp-server:
-  #   build:
-  #     context: .
-  #     dockerfile: mcp-server/Dockerfile
-  #   restart: unless-stopped
-  #   stdin_open: true
-  #   tty: false
-  #   environment:
-  #     BACKEND_URL: http://backend:3000
-  #     BACKEND_TOKEN: ${BACKEND_TOKEN:-}
-  #   depends_on:
-  #     backend:
-  #       condition: service_healthy
+  # HTTP (Streamable HTTP) MCP server — agents connect over http://localhost:${MCP_HOST_PORT:-3100}/mcp
+  # with a per-connection `sia_` bearer token (no shared BACKEND_TOKEN). Source is bind-mounted so
+  # host edits are picked up on container restart (the entry runs tsx directly).
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp-server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${MCP_HOST_PORT:-3100}:3100"
+    environment:
+      BACKEND_URL: http://backend:3000
+      MCP_PORT: "3100"
+      MCP_ALLOWED_ORIGINS: "${MCP_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}"
+    volumes:
+      - ./mcp-server/src:/app/mcp-server/src
+      - /app/mcp-server/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
