@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import prisma from '../prisma';
 import { enqueueTestRun } from '../queue/batch-sequencer';
-import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
+import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, redactEnvironmentVariables, requireScope } from '../utils/project-access';
 import { buildDataCaseSnapshot, getTestDataCases } from '../utils/test-data';
 
 const TRACES_DIR = path.resolve(process.env.TRACES_DIR || './traces');
@@ -226,13 +226,24 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     if (!run) return reply.status(404).send({ error: 'Run not found' });
     const { userId } = getAuthUser(req);
+    let scopes: Awaited<ReturnType<typeof requireScope>>;
     try {
-      await requireScope(run.test.project.id, userId, 'runs_read');
+      scopes = await requireScope(run.test.project.id, userId, 'runs_read');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
+    // This route feeds both the web UI and external MCP agents. Never leak write-only project
+    // secrets (the GitHub PAT) or raw environment secrets to a runs:read caller — mask env values
+    // unless the caller holds environments:reveal-secrets.
+    const { ghPat: _ghPat, ...safeProject } = run.test.project;
+    const canReveal = scopes.has('environments_reveal_secrets');
+    const safeEnvironment = run.environment
+      ? { ...run.environment, variables: redactEnvironmentVariables((run.environment.variables ?? {}) as Record<string, string>, !canReveal) }
+      : run.environment;
     return {
       ...run,
+      test: { ...run.test, project: safeProject },
+      environment: safeEnvironment,
       trace: await buildTraceMetadata(run)
     };
   });
