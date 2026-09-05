@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { Navigate, useNavigate } from 'react-router-dom';
-import appLogo from '../assets/shipitanyway_logo.png';
+import appLogo from '../assets/shipitanyway_logo.svg';
 import AppFooter from '../components/AppFooter';
 import { useAuth } from '../context/AuthContext';
 import { APP_DESCRIPTION, APP_NAME } from '../utils/appMeta';

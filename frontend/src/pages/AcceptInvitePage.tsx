@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Form, Input, Spin, Typography } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import appLogo from '../assets/shipitanyway_logo.png';
+import appLogo from '../assets/shipitanyway_logo.svg';
 import AppFooter from '../components/AppFooter';
 import { acceptInvite, validateInvite } from '../api/client';
 import { qk } from '../lib/queryKeys';

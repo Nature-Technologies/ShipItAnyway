@@ -1,7 +1,7 @@
 import { Layout, Space, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import appLogo from '../assets/shipitanyway_logo.png';
+import appLogo from '../assets/shipitanyway_logo.svg';
 import { APP_DESCRIPTION, APP_NAME } from '../utils/appMeta';
 
 const { Header } = Layout;
