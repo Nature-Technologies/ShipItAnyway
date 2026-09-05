@@ -119,9 +119,12 @@ async function start() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
+  // Deny framing globally (the JSON API must never be embedded → clickjacking). The trace-viewer
+  // routes below remove X-Frame-Options and set a scoped frame-ancestors CSP instead, since the
+  // frontend legitimately iframes them. CSP stays off globally (JSON API; viewer sets its own).
   await fastify.register(fastifyHelmet, {
     contentSecurityPolicy: false,
-    frameguard: false
+    frameguard: { action: 'deny' }
   });
 
   await fastify.register(rateLimit, {
@@ -234,6 +237,9 @@ async function start() {
     prefix: '/trace-viewer/',
     decorateReply: false,
     setHeaders: (reply) => {
+      // Let the frontend iframe the viewer: drop the global X-Frame-Options: DENY and scope framing
+      // to trusted origins via CSP frame-ancestors instead.
+      reply.removeHeader('X-Frame-Options');
       const frameAncestors = ["'self'", ...collectFrontendOrigins()].join(' ');
       reply.header('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
     }
@@ -244,6 +250,9 @@ async function start() {
     prefix: '/api/trace-viewer/',
     decorateReply: false,
     setHeaders: (reply) => {
+      // Let the frontend iframe the viewer: drop the global X-Frame-Options: DENY and scope framing
+      // to trusted origins via CSP frame-ancestors instead.
+      reply.removeHeader('X-Frame-Options');
       const frameAncestors = ["'self'", ...collectFrontendOrigins()].join(' ');
       reply.header('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
     }
