@@ -162,23 +162,32 @@ function hasUnresolvedVariables(value) {
   return typeof value === 'string' && value.includes('{{');
 }
 
+// Mirror of backend/src/utils/runtime-url.ts — keep the scheme allowlist in sync.
+const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'data:']);
+
 function resolveBrowserUrl(rawUrl) {
-  const internalUrl = process.env.FRONTEND_INTERNAL_URL;
-  if (!internalUrl) return rawUrl;
-
+  let parsed;
   try {
-    const parsed = new URL(rawUrl);
-    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
-    if (!isLocalhost) return rawUrl;
+    parsed = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
 
+  if (!ALLOWED_SCHEMES.has(parsed.protocol)) {
+    throw new Error(`Blocked URL scheme "${parsed.protocol}" — only http, https and data URLs are allowed`);
+  }
+
+  const internalUrl = process.env.FRONTEND_INTERNAL_URL;
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (internalUrl && parsed.protocol !== 'data:' && isLocalhost) {
     const internal = new URL(internalUrl);
     internal.pathname = parsed.pathname;
     internal.search = parsed.search;
     internal.hash = parsed.hash;
     return internal.toString();
-  } catch {
-    return rawUrl;
   }
+
+  return rawUrl;
 }
 
 function resolveDeviceConfig(device) {
