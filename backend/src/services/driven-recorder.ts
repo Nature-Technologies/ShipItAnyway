@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { expect } from '@playwright/test';
+import { compileUserRegExp } from '../utils/safe-regexp';
 import { launchChromium } from '../utils/browser';
 import { resolveLocator } from '../utils/locator';
 import { deriveSelectorCandidates } from '../utils/selector-variants';
@@ -125,14 +126,14 @@ export async function performDrivenAction(
         if (action.options?.exact) {
           await expect(page).toHaveURL(action.expected!, { timeout: action.options?.timeout ?? 5000 });
         } else {
-          await expect(page).toHaveURL(new RegExp(action.expected!), { timeout: action.options?.timeout ?? 5000 });
+          await expect(page).toHaveURL(compileUserRegExp(action.expected!), { timeout: action.options?.timeout ?? 5000 });
         }
         break;
       case 'assertTitle':
         if (action.options?.exact) {
           await expect(page).toHaveTitle(action.expected!, { timeout: action.options?.timeout ?? 5000 });
         } else {
-          await expect(page).toHaveTitle(new RegExp(action.expected!), { timeout: action.options?.timeout ?? 5000 });
+          await expect(page).toHaveTitle(compileUserRegExp(action.expected!), { timeout: action.options?.timeout ?? 5000 });
         }
         break;
       case 'assertChecked': {

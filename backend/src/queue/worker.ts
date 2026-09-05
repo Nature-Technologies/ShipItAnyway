@@ -16,6 +16,7 @@ import { mergeRuntimeVariables } from '../utils/runtime-variables';
 import { notifyRunResult } from '../services/notifier';
 import { getBrowserName, launchChromium } from '../utils/browser';
 import { validateStepRequirements } from '../utils/step-validation';
+import { compileUserRegExp } from '../utils/safe-regexp';
 import { resolveFixturePath } from '../routes/fixtures';
 import {
   buildActionCandidates,
@@ -361,7 +362,7 @@ async function runTest(job: Job<TestJobData>) {
                 timeout: step.options?.timeout ?? 10000
               });
             } else {
-              await expect(page).toHaveURL(new RegExp(step.expected!), {
+              await expect(page).toHaveURL(compileUserRegExp(step.expected!), {
                 timeout: step.options?.timeout ?? 10000
               });
             }
@@ -373,7 +374,7 @@ async function runTest(job: Job<TestJobData>) {
                 timeout: step.options?.timeout ?? 10000
               });
             } else {
-              await expect(page).toHaveTitle(new RegExp(step.expected!), {
+              await expect(page).toHaveTitle(compileUserRegExp(step.expected!), {
                 timeout: step.options?.timeout ?? 10000
               });
             }
