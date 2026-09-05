@@ -5,6 +5,7 @@ import { CreateTestSchema, StepSchema, UpdateTestSchema } from '../schemas/test.
 import { runValidationInSubprocess } from '../services/validation-runner';
 import { getAvailableDevices } from '../utils/devices';
 import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
+import { signedQuery } from '../utils/signed-url';
 
 const urlOrTemplate = z.string().refine((value) => {
   if (value.includes('{{')) return true;
@@ -169,6 +170,10 @@ export async function testRoutes(fastify: FastifyInstance) {
 
     try {
       const report = runValidationInSubprocess(result.data.url, result.data.steps, result.data.device);
+      // Sign the trace URL so the viewer can load it (static /api/traces now requires a signature).
+      if (report.tracePath) {
+        report.tracePath = `${report.tracePath}${signedQuery(`/api/traces/${report.tracePath}`)}`;
+      }
       return report;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Validation failed';

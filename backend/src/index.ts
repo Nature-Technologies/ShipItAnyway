@@ -30,6 +30,7 @@ import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
 import { resolveApiToken } from './utils/api-token';
+import { verifyArtifactSig } from './utils/signed-url';
 import { fixtureRoutes } from './routes/fixtures';
 import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
@@ -139,7 +140,19 @@ async function start() {
     secret: jwtSecret
   });
 
+  // Run artifacts (traces + screenshots) are gated by short-lived signed URLs minted by the authed
+  // /runs/:id handler — NOT blanket-public — because they can contain secrets. The trace-viewer app
+  // itself stays public (it holds no secrets; the trace zip it loads is signed).
+  const artifactPrefixes = ['/screenshots/', '/traces/', '/api/traces/'];
+
   fastify.addHook('preHandler', async (req, reply) => {
+    if ((req.method === 'GET' || req.method === 'HEAD') && artifactPrefixes.some((p) => req.url.startsWith(p))) {
+      const pathname = req.url.split('?')[0];
+      const q = req.query as { exp?: string; sig?: string };
+      if (verifyArtifactSig(pathname, q.exp, q.sig)) return;
+      return reply.status(401).send({ error: 'Invalid or expired artifact URL' });
+    }
+
     const publicRoutes = [
       { method: 'POST', url: '/auth/login' },
       { method: 'POST', url: '/auth/logout' },
@@ -148,9 +161,6 @@ async function start() {
       { method: 'GET', url: '/health' },
       { method: 'GET', url: '/health/db' },
       { method: 'POST', url: '/webhooks/trigger' },
-      { method: 'GET', url: '/screenshots/' },
-      { method: 'GET', url: '/traces/' },
-      { method: 'GET', url: '/api/traces/' },
       { method: 'GET', url: '/trace-viewer/' },
       { method: 'GET', url: '/api/trace-viewer/' },
       { method: 'GET', url: '/trace-viewer' }
