@@ -65,10 +65,12 @@ export async function authRoutes(fastify: FastifyInstance) {
 
   fastify.post('/auth/logout', async () => ({ ok: true }));
 
-  fastify.get('/auth/invite', {
+  // Validate via POST body (not a query param) so the raw invite token never lands in access logs
+  // or Referer headers.
+  fastify.post('/auth/invite', {
     config: { rateLimit: { max: 20, timeWindow: '5 minutes' } }
   }, async (req, reply) => {
-    const token = (req.query as { token?: string }).token;
+    const token = (req.body as { token?: string } | undefined)?.token;
     if (!token) return reply.status(400).send({ error: 'Invalid or expired invite' });
     const invite = await prisma.invite.findUnique({ where: { tokenHash: hashInviteToken(token) } });
     if (!invite || invite.status !== 'PENDING' || invite.expiresAt < new Date()) {

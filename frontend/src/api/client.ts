@@ -386,7 +386,7 @@ export const listFixtures = (projectId: string) =>
   api.get<{ fixtures: Fixture[] }>(`/projects/${projectId}/fixtures`).then((r) => r.data.fixtures);
 
 export const validateInvite = (token: string) =>
-  api.get<{ email: string }>('/auth/invite', { params: { token } }).then((r) => r.data);
+  api.post<{ email: string }>('/auth/invite', { token }).then((r) => r.data);
 
 export const acceptInvite = (token: string, password: string) =>
   api.post<{ ok: true }>('/auth/accept-invite', { token, password }).then((r) => r.data);

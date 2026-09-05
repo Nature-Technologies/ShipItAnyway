@@ -56,9 +56,10 @@ const defaultFrontendOrigins = [
 ];
 
 function collectFrontendOrigins() {
-  const origins = new Set<string>(defaultFrontendOrigins);
+  // Localhost defaults are dev-only; in production only explicitly-configured origins may frame the viewer.
+  const origins = new Set<string>(process.env.NODE_ENV === 'production' ? [] : defaultFrontendOrigins);
 
-  for (const candidate of [process.env.FRONTEND_URL, process.env.FRONTEND_DEV_URL]) {
+  for (const candidate of [process.env.FRONTEND_URL, process.env.FRONTEND_DEV_URL, process.env.FRONTEND_INTERNAL_URL]) {
     if (!candidate) continue;
 
     try {
@@ -106,14 +107,21 @@ async function start() {
   const serverOptions = { logger: true, trustProxy: parseTrustProxy() } as import('fastify').FastifyServerOptions;
   const fastify = Fastify(serverOptions);
   const port = Number(process.env.BACKEND_PORT) || 3000;
-  const frontendOrigins = [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
-    process.env.FRONTEND_DEV_URL || 'http://localhost:5173',
+  const isProduction = process.env.NODE_ENV === 'production';
+  // Explicitly-configured origins always apply. Localhost/loopback defaults are dev-only — in
+  // production, only origins the operator sets via env are allowed (no implicit localhost).
+  const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    process.env.FRONTEND_DEV_URL,
     // The compose-internal frontend origin, so a browser loading the app by service
     // name (e.g. the in-container recorder dogfooding SIA's own UI) isn't CORS-blocked.
-    process.env.FRONTEND_INTERNAL_URL,
-    'http://127.0.0.1:5173'
-  ].filter((o): o is string => Boolean(o));
+    process.env.FRONTEND_INTERNAL_URL
+  ];
+  const devDefaults = isProduction ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  const frontendOrigins = [...configuredOrigins, ...devDefaults].filter((o): o is string => Boolean(o));
+  if (isProduction && frontendOrigins.length === 0) {
+    fastify.log.warn('CORS: no FRONTEND_URL configured in production — all cross-origin requests will be blocked');
+  }
 
   await fastify.register(cors, {
     origin: frontendOrigins,
@@ -157,10 +165,12 @@ async function start() {
       return reply.status(401).send({ error: 'Invalid or expired artifact URL' });
     }
 
+    // Routes ending in '/' are prefix-matched (static dirs); the rest require an EXACT path match so
+    // a future protected route sharing a public prefix (or "/auth/loginX") can't be silently exempted.
     const publicRoutes = [
       { method: 'POST', url: '/auth/login' },
       { method: 'POST', url: '/auth/logout' },
-      { method: 'GET', url: '/auth/invite' },
+      { method: 'POST', url: '/auth/invite' },
       { method: 'POST', url: '/auth/accept-invite' },
       { method: 'GET', url: '/health' },
       { method: 'GET', url: '/health/db' },
@@ -170,10 +180,12 @@ async function start() {
       { method: 'GET', url: '/trace-viewer' }
     ];
 
-    const isPublic = publicRoutes.some((route) =>
-      req.url.startsWith(route.url) &&
-      (route.method === req.method || (req.method === 'HEAD' && route.method === 'GET'))
-    );
+    const publicPath = req.url.split('?')[0];
+    const isPublic = publicRoutes.some((route) => {
+      const methodOk = route.method === req.method || (req.method === 'HEAD' && route.method === 'GET');
+      if (!methodOk) return false;
+      return route.url.endsWith('/') ? publicPath.startsWith(route.url) : publicPath === route.url;
+    });
 
     if (isPublic) return;
 

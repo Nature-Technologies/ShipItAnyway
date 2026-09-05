@@ -147,12 +147,9 @@ export async function getAccessibleProjectIds(userId: string): Promise<string[]>
 // Keeps the _email param for the 2.1 call-site signature; protected admins are already in the
 // SUPERADMIN (isGlobal) group via migration/seed, so no email branch is needed.
 export async function canCreateProject(userId: string, _email: string): Promise<boolean> {
-  if (await isSuperadmin(userId)) return true;
-  // Uses resolveUserScopes so a scoped API token is capped to its token scopes.
-  const { membershipScopes, globalScopes } = await resolveUserScopes(userId);
-  return ['project_manage', 'checks_edit'].some(
-    (s) => globalScopes.has(s as Scope) || membershipScopes.has(s as Scope)
-  );
+  // Project creation is superadmin-only (see POST /projects -> requireSuperadmin). Keep this UI flag
+  // aligned with the real gate so non-superadmins don't see a "New project" affordance that 403s.
+  return isSuperadmin(userId);
 }
 
 export function getProjectAccessStatusCode(error: unknown) {
