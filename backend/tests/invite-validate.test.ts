@@ -7,7 +7,7 @@ import { authRoutes } from '../src/routes/auth';
 
 const uniq = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-test('GET /auth/invite returns only the email for a valid token, generic 400 otherwise', async () => {
+test('POST /auth/invite returns only the email for a valid token, generic 400 otherwise', async () => {
   const inviter = await prisma.user.create({ data: { email: `inviter-${uniq()}@x.io`, passwordHash: 'x' } });
   const app = Fastify(); // no preHandler — route is public
   await app.register(authRoutes);
@@ -22,14 +22,15 @@ test('GET /auth/invite returns only the email for a valid token, generic 400 oth
     data: { email: oldEmail, tokenHash: expiredTok.hash, invitedById: inviter.id, expiresAt: new Date(Date.now() - 60_000) }
   });
   try {
-    const ok = await app.inject({ method: 'GET', url: `/auth/invite?token=${raw}` });
+    // L1: token is carried in the POST body, never a query param (no access-log / Referer leak).
+    const ok = await app.inject({ method: 'POST', url: '/auth/invite', payload: { token: raw } });
     assert.equal(ok.statusCode, 200);
     assert.deepEqual(ok.json(), { email: validEmail });
 
-    const bad = await app.inject({ method: 'GET', url: '/auth/invite?token=nope' });
+    const bad = await app.inject({ method: 'POST', url: '/auth/invite', payload: { token: 'nope' } });
     assert.equal(bad.statusCode, 400);
 
-    const expired = await app.inject({ method: 'GET', url: `/auth/invite?token=${expiredTok.raw}` });
+    const expired = await app.inject({ method: 'POST', url: '/auth/invite', payload: { token: expiredTok.raw } });
     assert.equal(expired.statusCode, 400);
     const flipped = await prisma.invite.findFirst({ where: { email: oldEmail } });
     assert.equal(flipped!.status, 'EXPIRED'); // lazily marked
