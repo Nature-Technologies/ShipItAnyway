@@ -108,6 +108,19 @@ export async function testRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: result.error.flatten() });
     }
 
+    const existing = await prisma.test.findUnique({
+      where: { id: req.params.id },
+      select: { projectId: true }
+    });
+    if (!existing) return reply.status(404).send({ error: 'Test not found' });
+
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(existing.projectId, userId, 'checks_edit');
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+
     try {
       const test = await prisma.test.update({
         where: { id: req.params.id },

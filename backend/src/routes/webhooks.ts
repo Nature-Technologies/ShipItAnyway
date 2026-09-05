@@ -13,23 +13,28 @@ const WebhookPayloadSchema = z.object({
 
 function verifySignature(secret: string, body: string, signature: string) {
   if (!signature) return false;
-  if (signature === secret) return true;
-
-  const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
-  return signature === `sha256=${expected}`;
+  const expected = `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  // timingSafeEqual requires equal-length buffers; unequal length is already a mismatch.
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export async function webhookRoutes(fastify: FastifyInstance) {
   fastify.post('/webhooks/trigger', async (req, reply) => {
+    // Fail closed: this route is public (no JWT), so an unset/weak secret means anyone can enqueue
+    // runs for any project. Refuse the request rather than treating "no secret" as "no auth".
     const secret = process.env.WEBHOOK_SECRET;
-    if (secret) {
-      const signatureHeader = req.headers['x-shipitanyway-secret'];
-      const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
-      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+    if (!secret || secret.length < 16 || secret === 'your-secret-here') {
+      return reply.status(503).send({ error: 'Webhook trigger is not configured' });
+    }
 
-      if (!signature || !verifySignature(secret, rawBody, signature)) {
-        return reply.status(401).send({ error: 'Invalid signature' });
-      }
+    const signatureHeader = req.headers['x-shipitanyway-secret'];
+    const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+
+    if (!signature || !verifySignature(secret, rawBody, signature)) {
+      return reply.status(401).send({ error: 'Invalid signature' });
     }
 
     const result = WebhookPayloadSchema.safeParse(req.body);

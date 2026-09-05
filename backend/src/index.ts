@@ -113,8 +113,15 @@ async function start() {
     timeWindow: '1 minute'
   });
 
+  // Fail closed: a missing/weak JWT secret lets anyone forge tokens for any user (incl. superadmin).
+  // No fallback constant — refuse to boot without a strong secret.
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret || jwtSecret.length < 32 || jwtSecret.includes('replace-this')) {
+    throw new Error('JWT_SECRET must be set to a strong random value of at least 32 characters (not the placeholder)');
+  }
+
   await fastify.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET ?? 'replace-this-with-a-long-random-string'
+    secret: jwtSecret
   });
 
   fastify.addHook('preHandler', async (req, reply) => {
