@@ -183,17 +183,23 @@ async function start() {
         return;
       }
       await req.jwtVerify();
-      const payload = req.user as { userId?: string; email?: string } | undefined;
+      const payload = req.user as { userId?: string; email?: string; iat?: number } | undefined;
       if (!payload?.userId || !payload.email) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
 
       const user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { email: true }
+        select: { email: true, passwordChangedAt: true }
       });
 
       if (!user || user.email !== payload.email) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      // Invalidate tokens issued before the last password change (logout-everywhere on rotation).
+      // JWT iat is in seconds; add 1s slack for same-second issue/change ordering.
+      if (user.passwordChangedAt && payload.iat && payload.iat + 1 < Math.floor(user.passwordChangedAt.getTime() / 1000)) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
     } catch {

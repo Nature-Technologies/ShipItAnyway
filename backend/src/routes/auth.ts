@@ -94,7 +94,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);
       const u = await tx.user.upsert({
         where: { email: invite.email },
-        update: { passwordHash },
+        update: { passwordHash, passwordChangedAt: new Date() },
         create: { email: invite.email, passwordHash }
       });
 
@@ -153,7 +153,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: await bcrypt.hash(result.data.newPassword, 12) }
+      data: { passwordHash: await bcrypt.hash(result.data.newPassword, 12), passwordChangedAt: new Date() }
     });
 
     return { ok: true };
