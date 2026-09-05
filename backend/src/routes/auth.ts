@@ -159,7 +159,10 @@ export async function authRoutes(fastify: FastifyInstance) {
     return { ok: true };
   });
 
-  fastify.get('/users/exists', async (req, reply) => {
+  fastify.get('/users/exists', {
+    // Throttle to blunt authenticated email-directory enumeration.
+    config: { rateLimit: { max: 20, timeWindow: '5 minutes' } }
+  }, async (req, reply) => {
     const result = UserLookupSchema.safeParse(req.query);
     if (!result.success) {
       return reply.status(400).send({ error: result.error.flatten() });

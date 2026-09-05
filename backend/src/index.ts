@@ -179,8 +179,8 @@ async function start() {
     root: screenshotsDir,
     prefix: '/screenshots/',
     decorateReply: false,
-    setHeaders: (res) => {
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    setHeaders: (reply) => {
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
   });
 
@@ -188,9 +188,9 @@ async function start() {
     root: tracesDir,
     prefix: '/traces/',
     decorateReply: false,
-    setHeaders: (res) => {
-      res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    setHeaders: (reply) => {
+      reply.header('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
   });
 
@@ -198,9 +198,9 @@ async function start() {
     root: tracesDir,
     prefix: '/api/traces/',
     decorateReply: false,
-    setHeaders: (res) => {
-      res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    setHeaders: (reply) => {
+      reply.header('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
   });
 
@@ -208,9 +208,9 @@ async function start() {
     root: traceViewerRoot,
     prefix: '/trace-viewer/',
     decorateReply: false,
-    setHeaders: (res) => {
+    setHeaders: (reply) => {
       const frameAncestors = ["'self'", ...collectFrontendOrigins()].join(' ');
-      res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+      reply.header('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
     }
   });
 
@@ -218,9 +218,9 @@ async function start() {
     root: traceViewerRoot,
     prefix: '/api/trace-viewer/',
     decorateReply: false,
-    setHeaders: (res) => {
+    setHeaders: (reply) => {
       const frameAncestors = ["'self'", ...collectFrontendOrigins()].join(' ');
-      res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+      reply.header('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
     }
   });
 
@@ -260,6 +260,18 @@ async function start() {
       .catch((e) => console.error('[CI reconcile] failed:', e));
   }, 5 * 60 * 1000);
   ciReconcileTimer.unref();
+
+  // Generic error handler: log the real error server-side, but never echo internal messages/stack
+  // to clients on 5xx (default Fastify behavior leaks err.message, e.g. raw DB errors).
+  fastify.setErrorHandler((error: import('fastify').FastifyError, req, reply) => {
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      req.log.error(error);
+      return reply.status(status).send({ error: 'Internal Server Error' });
+    }
+    // Preserve intentional 4xx validation/auth messages.
+    return reply.status(status).send({ error: error.message });
+  });
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
 
