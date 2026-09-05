@@ -120,6 +120,13 @@ export async function channelRoutes(fastify: FastifyInstance) {
 
     if (!channel) return reply.status(404).send({ error: 'Channel not found' });
 
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(channel.projectId, userId, 'alerts_edit');
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+
     try {
       const text = buildTestMessage(channel.name, channel.type);
 

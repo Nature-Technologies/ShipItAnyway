@@ -65,10 +65,12 @@ export async function authRoutes(fastify: FastifyInstance) {
 
   fastify.post('/auth/logout', async () => ({ ok: true }));
 
-  fastify.get('/auth/invite', {
+  // Validate via POST body (not a query param) so the raw invite token never lands in access logs
+  // or Referer headers.
+  fastify.post('/auth/invite', {
     config: { rateLimit: { max: 20, timeWindow: '5 minutes' } }
   }, async (req, reply) => {
-    const token = (req.query as { token?: string }).token;
+    const token = (req.body as { token?: string } | undefined)?.token;
     if (!token) return reply.status(400).send({ error: 'Invalid or expired invite' });
     const invite = await prisma.invite.findUnique({ where: { tokenHash: hashInviteToken(token) } });
     if (!invite || invite.status !== 'PENDING' || invite.expiresAt < new Date()) {
@@ -94,7 +96,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);
       const u = await tx.user.upsert({
         where: { email: invite.email },
-        update: { passwordHash },
+        update: { passwordHash, passwordChangedAt: new Date() },
         create: { email: invite.email, passwordHash }
       });
 
@@ -153,13 +155,16 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: await bcrypt.hash(result.data.newPassword, 12) }
+      data: { passwordHash: await bcrypt.hash(result.data.newPassword, 12), passwordChangedAt: new Date() }
     });
 
     return { ok: true };
   });
 
-  fastify.get('/users/exists', async (req, reply) => {
+  fastify.get('/users/exists', {
+    // Throttle to blunt authenticated email-directory enumeration.
+    config: { rateLimit: { max: 20, timeWindow: '5 minutes' } }
+  }, async (req, reply) => {
     const result = UserLookupSchema.safeParse(req.query);
     if (!result.success) {
       return reply.status(400).send({ error: result.error.flatten() });

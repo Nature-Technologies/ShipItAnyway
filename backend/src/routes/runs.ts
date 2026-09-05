@@ -6,6 +6,7 @@ import prisma from '../prisma';
 import { enqueueTestRun } from '../queue/batch-sequencer';
 import { getAccessibleProjectIds, getAuthUser, getProjectAccessStatusCode, redactEnvironmentVariables, requireScope } from '../utils/project-access';
 import { buildDataCaseSnapshot, getTestDataCases } from '../utils/test-data';
+import { signedQuery } from '../utils/signed-url';
 
 const TRACES_DIR = path.resolve(process.env.TRACES_DIR || './traces');
 
@@ -31,10 +32,12 @@ export async function runRoutes(fastify: FastifyInstance) {
 
     try {
       await fs.access(path.join(TRACES_DIR, run.tracePath));
+      const served = `/api/traces/${run.tracePath}`;
+      const signed = `${served}${signedQuery(served)}`;
       return {
         available: true,
-        downloadUrl: `/api/traces/${run.tracePath}`,
-        viewerUrl: `/trace-viewer/?trace=${encodeURIComponent(`/api/traces/${run.tracePath}`)}`
+        downloadUrl: signed,
+        viewerUrl: `/trace-viewer/?trace=${encodeURIComponent(signed)}`
       };
     } catch {
       return {
@@ -240,8 +243,25 @@ export async function runRoutes(fastify: FastifyInstance) {
     const safeEnvironment = run.environment
       ? { ...run.environment, variables: redactEnvironmentVariables((run.environment.variables ?? {}) as Record<string, string>, !canReveal) }
       : run.environment;
+
+    // Sign artifact references so the frontend's `/screenshots/${name}` / `/api/traces/${tracePath}`
+    // concatenations produce valid short-lived URLs (the static routes now require a signature).
+    const signScreenshot = (name: string) => `${name}${signedQuery(`/screenshots/${name}`)}`;
+    const signedScreenshots = Array.isArray(run.screenshots)
+      ? (run.screenshots as unknown[]).map((name) => (typeof name === 'string' ? signScreenshot(name) : name))
+      : run.screenshots;
+    const signedTracePath = run.tracePath ? `${run.tracePath}${signedQuery(`/api/traces/${run.tracePath}`)}` : run.tracePath;
+    const signedStepResults = Array.isArray(run.stepResults)
+      ? (run.stepResults as Array<Record<string, unknown>>).map((s) =>
+          s && typeof s.screenshot === 'string' ? { ...s, screenshot: signScreenshot(s.screenshot) } : s
+        )
+      : run.stepResults;
+
     return {
       ...run,
+      screenshots: signedScreenshots,
+      tracePath: signedTracePath,
+      stepResults: signedStepResults,
       test: { ...run.test, project: safeProject },
       environment: safeEnvironment,
       trace: await buildTraceMetadata(run)

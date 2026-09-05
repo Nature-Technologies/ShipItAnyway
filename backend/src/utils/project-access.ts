@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import { Scope } from '@prisma/client';
 import prisma from '../prisma';
 import { FALLBACK_ADMIN_EMAIL } from '../constants/admin';
+import { getTokenScopes, setTokenScopes } from './request-context';
 
 export { Scope };
 
@@ -30,6 +31,14 @@ export async function resolveUserScopes(userId: string): Promise<{ membershipSco
   for (const { group } of rows) {
     for (const { scope } of group.scopes) (group.isGlobal ? globalScopes : membershipScopes).add(scope);
   }
+
+  // If the caller authenticated with a scoped API token, cap authority to the token's scopes.
+  const tokenScopes = getTokenScopes();
+  if (tokenScopes) {
+    for (const s of [...membershipScopes]) if (!tokenScopes.has(s)) membershipScopes.delete(s);
+    for (const s of [...globalScopes]) if (!tokenScopes.has(s)) globalScopes.delete(s);
+  }
+
   return { membershipScopes, globalScopes };
 }
 
@@ -53,6 +62,9 @@ function forbidden(): ProjectAccessError {
 }
 
 export async function isSuperadmin(userId: string): Promise<boolean> {
+  // A scoped API token never wields superadmin, even if its owner is one (superadmin is a capability,
+  // not a grantable scope, so it can't appear in a token's scope list).
+  if (getTokenScopes()) return false;
   const count = await prisma.userGroup.count({
     where: { userId, group: { isGlobal: true } }
   });
@@ -113,6 +125,9 @@ export function getAuthUser(request: FastifyRequest): AuthUser {
   if (!payload?.userId || !payload.email) {
     throw new Error('Unauthorized');
   }
+  // Bind a scoped token's restriction into THIS handler's async context, so the RBAC resolver
+  // (isSuperadmin / resolveUserScopes) caps authority for the rest of the request.
+  if (request.tokenScopes) setTokenScopes(request.tokenScopes);
   return { userId: payload.userId, email: payload.email };
 }
 
@@ -132,13 +147,9 @@ export async function getAccessibleProjectIds(userId: string): Promise<string[]>
 // Keeps the _email param for the 2.1 call-site signature; protected admins are already in the
 // SUPERADMIN (isGlobal) group via migration/seed, so no email branch is needed.
 export async function canCreateProject(userId: string, _email: string): Promise<boolean> {
-  const rows = await prisma.userGroup.findMany({
-    where: { userId },
-    select: { group: { select: { isGlobal: true, scopes: { select: { scope: true } } } } }
-  });
-  return rows.some(({ group }) =>
-    group.isGlobal || group.scopes.some((s) => s.scope === 'project_manage' || s.scope === 'checks_edit')
-  );
+  // Project creation is superadmin-only (see POST /projects -> requireSuperadmin). Keep this UI flag
+  // aligned with the real gate so non-superadmins don't see a "New project" affordance that 403s.
+  return isSuperadmin(userId);
 }
 
 export function getProjectAccessStatusCode(error: unknown) {

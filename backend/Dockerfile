@@ -8,7 +8,8 @@ COPY backend/package.json ./backend/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --filter backend --ignore-scripts
 
 COPY backend/ ./backend/
-COPY .env.example .env
+# Do NOT bake any .env into the image — secrets/config come from the runtime environment
+# (docker-compose env / env_file). Baking .env.example shipped known-weak defaults.
 
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/playwright_testing
 ENV PLAYWRIGHT_BROWSERS_PATH=0
@@ -32,6 +33,8 @@ CMD sh -c "cd backend && npx prisma migrate deploy && npx prisma db seed && npx 
 
 # ── prod target (default: last stage): compile then run the built JS. ──────────────
 FROM base AS prod
+# Default to production behavior even if compose doesn't set it (dev-only CORS/CSP off, etc.).
+ENV NODE_ENV=production
 RUN cd backend && npx tsc -p tsconfig.json && npx tsc-alias -p tsconfig.json
 EXPOSE 3000
 # TypeScript output lives under dist/src because the backend tsconfig compiles from src/.

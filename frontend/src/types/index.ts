@@ -518,6 +518,7 @@ export interface ApiToken {
   name: string;
   prefix: string;
   userEmail: string;
+  scopes: string[]; // [] = unrestricted (full user authority)
   expiresAt?: string | null;
   lastUsedAt?: string | null;
   revokedAt?: string | null;

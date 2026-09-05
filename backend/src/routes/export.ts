@@ -43,12 +43,14 @@ export async function exportRoutes(fastify: FastifyInstance) {
       if (!test) return reply.status(404).send({ error: 'Test not found' });
 
       const { userId } = getAuthUser(req);
+      let scopes: Awaited<ReturnType<typeof requireScope>>;
       try {
-        await requireScope(test.projectId, userId, 'checks_edit');
+        scopes = await requireScope(test.projectId, userId, 'checks_edit');
       } catch (error) {
         return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
       }
 
+      const useEnvVars = req.query.useEnvVars === 'true';
       let variables: Record<string, string> = {};
       if (req.query.envId) {
         const environment = await prisma.environment.findUnique({
@@ -57,13 +59,18 @@ export async function exportRoutes(fastify: FastifyInstance) {
         if (!environment || environment.projectId !== test.projectId) {
           return reply.status(404).send({ error: 'Environment not found' });
         }
+        // Inlining real secret values (useEnvVars=false) requires the reveal-secrets scope;
+        // otherwise the export would exfiltrate secrets a viewer can't otherwise read.
+        if (!useEnvVars && !scopes.has('environments_reveal_secrets')) {
+          return reply.status(403).send({ error: 'environments:reveal-secrets required to inline environment values' });
+        }
         variables = (environment?.variables ?? {}) as Record<string, string>;
       }
 
       const code = exportToSpec(test.steps as never[], {
         testName: test.name,
         variables,
-        useEnvVars: req.query.useEnvVars === 'true'
+        useEnvVars
       });
 
       const filename = sanitizeFilename(test.name || 'test') || 'test';
@@ -95,12 +102,14 @@ export async function exportRoutes(fastify: FastifyInstance) {
     }
 
     const { userId } = getAuthUser(req);
+    let scopes: Awaited<ReturnType<typeof requireScope>>;
     try {
-      await requireScope(test.projectId, userId, 'checks_edit');
+      scopes = await requireScope(test.projectId, userId, 'checks_edit');
     } catch (error) {
       return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
     }
 
+    const useEnvVars = body.data.useEnvVars ?? false;
     let variables: Record<string, string> = {};
     if (body.data.envId) {
       const environment = await prisma.environment.findUnique({
@@ -108,6 +117,10 @@ export async function exportRoutes(fastify: FastifyInstance) {
       });
       if (!environment || environment.projectId !== test.projectId) {
         return reply.status(404).send({ error: 'Environment not found' });
+      }
+      // Inlining real secret values requires the reveal-secrets scope (see GET /tests/:id/export).
+      if (!useEnvVars && !scopes.has('environments_reveal_secrets')) {
+        return reply.status(403).send({ error: 'environments:reveal-secrets required to inline environment values' });
       }
       variables = (environment?.variables ?? {}) as Record<string, string>;
     }
@@ -117,7 +130,7 @@ export async function exportRoutes(fastify: FastifyInstance) {
       testUrl: test.url,
       steps: test.steps as unknown as Step[],
       variables,
-      useEnvVars: body.data.useEnvVars ?? false
+      useEnvVars
     });
 
     reply.header('Content-Type', 'application/zip');
@@ -139,6 +152,13 @@ export async function exportRoutes(fastify: FastifyInstance) {
     });
 
     if (!project) return reply.status(404).send({ error: 'Project not found' });
+
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(req.params.projectId, userId, 'checks_edit');
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
 
     const { testName, steps } = parsePlaywrightSpec(body.data.code);
     if (steps.length === 0) {

@@ -386,7 +386,7 @@ export const listFixtures = (projectId: string) =>
   api.get<{ fixtures: Fixture[] }>(`/projects/${projectId}/fixtures`).then((r) => r.data.fixtures);
 
 export const validateInvite = (token: string) =>
-  api.get<{ email: string }>('/auth/invite', { params: { token } }).then((r) => r.data);
+  api.post<{ email: string }>('/auth/invite', { token }).then((r) => r.data);
 
 export const acceptInvite = (token: string, password: string) =>
   api.post<{ ok: true }>('/auth/accept-invite', { token, password }).then((r) => r.data);
@@ -415,10 +415,12 @@ export const getReportSends = (id: string) =>
 // API tokens (superadmin)
 export const listApiTokens = () =>
   api.get<ApiToken[]>('/api-tokens').then((r) => r.data);
-export const createApiToken = (body: { name: string; userId: string; expiresAt?: string }) =>
+export const createApiToken = (body: { name: string; userId: string; expiresAt?: string; scopes?: string[] }) =>
   api.post<ApiTokenCreated>('/api-tokens', body).then((r) => r.data);
 export const revokeApiToken = (id: string) =>
   api.delete(`/api-tokens/${id}`).then(() => undefined);
+export const getApiTokenScopes = () =>
+  api.get<{ scopes: string[] }>('/api-tokens/scopes').then((r) => r.data.scopes);
 
 // Project GitHub CI config
 export const getProjectGithubConfig = (projectId: string) =>

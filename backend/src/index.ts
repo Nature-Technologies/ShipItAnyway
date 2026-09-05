@@ -30,6 +30,8 @@ import { webhookRoutes } from './routes/webhooks';
 import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
 import { resolveApiToken } from './utils/api-token';
+import { verifyArtifactSig } from './utils/signed-url';
+import './utils/request-context'; // fastify request augmentation (req.tokenScopes)
 import { fixtureRoutes } from './routes/fixtures';
 import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
@@ -54,9 +56,10 @@ const defaultFrontendOrigins = [
 ];
 
 function collectFrontendOrigins() {
-  const origins = new Set<string>(defaultFrontendOrigins);
+  // Localhost defaults are dev-only; in production only explicitly-configured origins may frame the viewer.
+  const origins = new Set<string>(process.env.NODE_ENV === 'production' ? [] : defaultFrontendOrigins);
 
-  for (const candidate of [process.env.FRONTEND_URL, process.env.FRONTEND_DEV_URL]) {
+  for (const candidate of [process.env.FRONTEND_URL, process.env.FRONTEND_DEV_URL, process.env.FRONTEND_INTERNAL_URL]) {
     if (!candidate) continue;
 
     try {
@@ -86,26 +89,51 @@ fs.mkdirSync(screenshotsDir, { recursive: true });
 fs.mkdirSync(tracesDir, { recursive: true });
 fs.mkdirSync(fixturesDir, { recursive: true });
 
+// Rate limiting keys on req.ip. Behind a reverse proxy, req.ip is the proxy unless trustProxy is
+// set — but trusting X-Forwarded-* blindly lets clients spoof it. So default OFF and let the deploy
+// opt in with the exact hop count / trusted CIDR via TRUST_PROXY (e.g. "1", "true", "10.0.0.0/8").
+function parseTrustProxy(): boolean | number | string {
+  const v = process.env.TRUST_PROXY;
+  if (!v) return false;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : v;
+}
+
 async function start() {
-  const fastify = Fastify({ logger: true });
+  // `as` cast: Fastify accepts a numeric hop count for trustProxy at runtime (proxy-addr), but its
+  // type omits `number`; the cast keeps hop-count support without loosening anything else.
+  const serverOptions = { logger: true, trustProxy: parseTrustProxy() } as import('fastify').FastifyServerOptions;
+  const fastify = Fastify(serverOptions);
   const port = Number(process.env.BACKEND_PORT) || 3000;
-  const frontendOrigins = [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
-    process.env.FRONTEND_DEV_URL || 'http://localhost:5173',
+  const isProduction = process.env.NODE_ENV === 'production';
+  // Explicitly-configured origins always apply. Localhost/loopback defaults are dev-only — in
+  // production, only origins the operator sets via env are allowed (no implicit localhost).
+  const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    process.env.FRONTEND_DEV_URL,
     // The compose-internal frontend origin, so a browser loading the app by service
     // name (e.g. the in-container recorder dogfooding SIA's own UI) isn't CORS-blocked.
-    process.env.FRONTEND_INTERNAL_URL,
-    'http://127.0.0.1:5173'
-  ].filter((o): o is string => Boolean(o));
+    process.env.FRONTEND_INTERNAL_URL
+  ];
+  const devDefaults = isProduction ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  const frontendOrigins = [...configuredOrigins, ...devDefaults].filter((o): o is string => Boolean(o));
+  if (isProduction && frontendOrigins.length === 0) {
+    fastify.log.warn('CORS: no FRONTEND_URL configured in production — all cross-origin requests will be blocked');
+  }
 
   await fastify.register(cors, {
     origin: frontendOrigins,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
+  // Deny framing globally (the JSON API must never be embedded → clickjacking). The trace-viewer
+  // routes below remove X-Frame-Options and set a scoped frame-ancestors CSP instead, since the
+  // frontend legitimately iframes them. CSP stays off globally (JSON API; viewer sets its own).
   await fastify.register(fastifyHelmet, {
     contentSecurityPolicy: false,
-    frameguard: false
+    frameguard: { action: 'deny' }
   });
 
   await fastify.register(rateLimit, {
@@ -113,52 +141,82 @@ async function start() {
     timeWindow: '1 minute'
   });
 
+  // Fail closed: a missing/weak JWT secret lets anyone forge tokens for any user (incl. superadmin).
+  // No fallback constant — refuse to boot without a strong secret.
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret || jwtSecret.length < 32 || jwtSecret.includes('replace-this')) {
+    throw new Error('JWT_SECRET must be set to a strong random value of at least 32 characters (not the placeholder)');
+  }
+
   await fastify.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET ?? 'replace-this-with-a-long-random-string'
+    secret: jwtSecret
   });
 
+  // Run artifacts (traces + screenshots) are gated by short-lived signed URLs minted by the authed
+  // /runs/:id handler — NOT blanket-public — because they can contain secrets. The trace-viewer app
+  // itself stays public (it holds no secrets; the trace zip it loads is signed).
+  const artifactPrefixes = ['/screenshots/', '/traces/', '/api/traces/'];
+
   fastify.addHook('preHandler', async (req, reply) => {
+    if ((req.method === 'GET' || req.method === 'HEAD') && artifactPrefixes.some((p) => req.url.startsWith(p))) {
+      const pathname = req.url.split('?')[0];
+      const q = req.query as { exp?: string; sig?: string };
+      if (verifyArtifactSig(pathname, q.exp, q.sig)) return;
+      return reply.status(401).send({ error: 'Invalid or expired artifact URL' });
+    }
+
+    // Routes ending in '/' are prefix-matched (static dirs); the rest require an EXACT path match so
+    // a future protected route sharing a public prefix (or "/auth/loginX") can't be silently exempted.
     const publicRoutes = [
       { method: 'POST', url: '/auth/login' },
       { method: 'POST', url: '/auth/logout' },
-      { method: 'GET', url: '/auth/invite' },
+      { method: 'POST', url: '/auth/invite' },
       { method: 'POST', url: '/auth/accept-invite' },
       { method: 'GET', url: '/health' },
       { method: 'GET', url: '/health/db' },
       { method: 'POST', url: '/webhooks/trigger' },
-      { method: 'GET', url: '/screenshots/' },
-      { method: 'GET', url: '/traces/' },
-      { method: 'GET', url: '/api/traces/' },
       { method: 'GET', url: '/trace-viewer/' },
       { method: 'GET', url: '/api/trace-viewer/' },
       { method: 'GET', url: '/trace-viewer' }
     ];
 
-    const isPublic = publicRoutes.some((route) =>
-      req.url.startsWith(route.url) &&
-      (route.method === req.method || (req.method === 'HEAD' && route.method === 'GET'))
-    );
+    const publicPath = req.url.split('?')[0];
+    const isPublic = publicRoutes.some((route) => {
+      const methodOk = route.method === req.method || (req.method === 'HEAD' && route.method === 'GET');
+      if (!methodOk) return false;
+      return route.url.endsWith('/') ? publicPath.startsWith(route.url) : publicPath === route.url;
+    });
 
     if (isPublic) return;
 
     try {
       const viaToken = await resolveApiToken(req.headers.authorization);
       if (viaToken) {
-        req.user = viaToken;
+        req.user = { userId: viaToken.userId, email: viaToken.email };
+        // A non-empty scope list restricts this token to a subset of the user's authority.
+        // Stashed on req here; bound to the handler's async context by getAuthUser (enterWith in a
+        // hook does not propagate into the fastify handler's context).
+        if (viaToken.scopes.length > 0) req.tokenScopes = new Set(viaToken.scopes);
         return;
       }
       await req.jwtVerify();
-      const payload = req.user as { userId?: string; email?: string } | undefined;
+      const payload = req.user as { userId?: string; email?: string; iat?: number } | undefined;
       if (!payload?.userId || !payload.email) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
 
       const user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { email: true }
+        select: { email: true, passwordChangedAt: true }
       });
 
       if (!user || user.email !== payload.email) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      // Invalidate tokens issued before the last password change (logout-everywhere on rotation).
+      // JWT iat is in seconds; add 1s slack for same-second issue/change ordering.
+      if (user.passwordChangedAt && payload.iat && payload.iat + 1 < Math.floor(user.passwordChangedAt.getTime() / 1000)) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
     } catch {
@@ -172,8 +230,8 @@ async function start() {
     root: screenshotsDir,
     prefix: '/screenshots/',
     decorateReply: false,
-    setHeaders: (res) => {
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    setHeaders: (reply) => {
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
   });
 
@@ -181,9 +239,9 @@ async function start() {
     root: tracesDir,
     prefix: '/traces/',
     decorateReply: false,
-    setHeaders: (res) => {
-      res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    setHeaders: (reply) => {
+      reply.header('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
   });
 
@@ -191,9 +249,9 @@ async function start() {
     root: tracesDir,
     prefix: '/api/traces/',
     decorateReply: false,
-    setHeaders: (res) => {
-      res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    setHeaders: (reply) => {
+      reply.header('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+      reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }
   });
 
@@ -201,9 +259,12 @@ async function start() {
     root: traceViewerRoot,
     prefix: '/trace-viewer/',
     decorateReply: false,
-    setHeaders: (res) => {
+    setHeaders: (reply) => {
+      // Let the frontend iframe the viewer: drop the global X-Frame-Options: DENY and scope framing
+      // to trusted origins via CSP frame-ancestors instead.
+      reply.removeHeader('X-Frame-Options');
       const frameAncestors = ["'self'", ...collectFrontendOrigins()].join(' ');
-      res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+      reply.header('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
     }
   });
 
@@ -211,9 +272,12 @@ async function start() {
     root: traceViewerRoot,
     prefix: '/api/trace-viewer/',
     decorateReply: false,
-    setHeaders: (res) => {
+    setHeaders: (reply) => {
+      // Let the frontend iframe the viewer: drop the global X-Frame-Options: DENY and scope framing
+      // to trusted origins via CSP frame-ancestors instead.
+      reply.removeHeader('X-Frame-Options');
       const frameAncestors = ["'self'", ...collectFrontendOrigins()].join(' ');
-      res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+      reply.header('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
     }
   });
 
@@ -253,6 +317,18 @@ async function start() {
       .catch((e) => console.error('[CI reconcile] failed:', e));
   }, 5 * 60 * 1000);
   ciReconcileTimer.unref();
+
+  // Generic error handler: log the real error server-side, but never echo internal messages/stack
+  // to clients on 5xx (default Fastify behavior leaks err.message, e.g. raw DB errors).
+  fastify.setErrorHandler((error: import('fastify').FastifyError, req, reply) => {
+    const status = error.statusCode ?? 500;
+    if (status >= 500) {
+      req.log.error(error);
+      return reply.status(status).send({ error: 'Internal Server Error' });
+    }
+    // Preserve intentional 4xx validation/auth messages.
+    return reply.status(status).send({ error: error.message });
+  });
 
   fastify.get('/health', async () => ({ status: 'ok', port }));
 

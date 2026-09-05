@@ -1,15 +1,17 @@
 import { chromium, devices } from 'playwright';
 
-const ALLOWED_LOCATOR_PREFIXES = [
-  'page.getByRole(',
-  'page.getByLabel(',
-  'page.getByText(',
-  'page.getByPlaceholder(',
-  'page.getByTestId(',
-  'page.getByTitle(',
-  'page.locator(',
-  'page.getByAltText('
-];
+const ALLOWED_LOCATOR_METHODS = new Set([
+  'getByRole',
+  'getByLabel',
+  'getByText',
+  'getByPlaceholder',
+  'getByTestId',
+  'getByTitle',
+  'locator',
+  'getByAltText'
+]);
+
+const ALLOWED_LOCATOR_PREFIXES = [...ALLOWED_LOCATOR_METHODS].map((m) => `page.${m}(`);
 
 const PLAYWRIGHT_ERROR_HINTS = [
   {
@@ -45,6 +47,97 @@ function isSafeLocator(selector) {
   return ALLOWED_LOCATOR_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
+// Strict parser for `page.<method>( <arg> (, <arg>)* )` where <arg> = string | number | boolean |
+// { ident|string : primitive , ... }. Never evaluates code — replaces a former eval() (RCE).
+// Mirror of backend/src/utils/locator.ts:parseLocatorCall; keep the two in sync.
+function parseLocatorCall(input) {
+  const head = input.match(/^page\.([A-Za-z]+)\(/);
+  if (!head) throw new Error(`Unsafe locator rejected: "${input.slice(0, 50)}"`);
+  const method = head[1];
+  if (!ALLOWED_LOCATOR_METHODS.has(method)) {
+    throw new Error(`Unsafe locator rejected: "${input.slice(0, 50)}"`);
+  }
+
+  let i = head[0].length;
+  const fail = () => { throw new Error(`Unsafe locator rejected: "${input.slice(0, 50)}"`); };
+  const skipWs = () => { while (i < input.length && /\s/.test(input[i])) i++; };
+
+  function parseString() {
+    const quote = input[i++];
+    let out = '';
+    while (i < input.length) {
+      const ch = input[i++];
+      if (ch === '\\') { const next = input[i++]; out += next === 'n' ? '\n' : next === 't' ? '\t' : next; continue; }
+      if (ch === quote) return out;
+      out += ch;
+    }
+    return fail();
+  }
+  function parseNumber() {
+    const start = i;
+    if (input[i] === '-') i++;
+    while (i < input.length && /[0-9.]/.test(input[i])) i++;
+    const raw = input.slice(start, i);
+    const n = Number(raw);
+    if (raw === '' || Number.isNaN(n)) return fail();
+    return n;
+  }
+  function parseKey() {
+    if (input[i] === "'" || input[i] === '"' || input[i] === '`') return parseString();
+    const m = input.slice(i).match(/^[A-Za-z_$][A-Za-z0-9_$]*/);
+    if (!m) return fail();
+    i += m[0].length;
+    return m[0];
+  }
+  function parsePrimitive() {
+    skipWs();
+    const ch = input[i];
+    if (ch === "'" || ch === '"' || ch === '`') return parseString();
+    if (ch === '-' || (ch >= '0' && ch <= '9')) return parseNumber();
+    if (input.startsWith('true', i)) { i += 4; return true; }
+    if (input.startsWith('false', i)) { i += 5; return false; }
+    return fail();
+  }
+  function parseObject() {
+    i++;
+    const obj = {};
+    skipWs();
+    if (input[i] === '}') { i++; return obj; }
+    for (;;) {
+      skipWs();
+      const key = parseKey();
+      skipWs();
+      if (input[i++] !== ':') fail();
+      obj[key] = parsePrimitive();
+      skipWs();
+      const sep = input[i++];
+      if (sep === '}') return obj;
+      if (sep !== ',') fail();
+    }
+  }
+  function parseArg() {
+    skipWs();
+    if (input[i] === '{') return parseObject();
+    return parsePrimitive();
+  }
+
+  const args = [];
+  skipWs();
+  if (input[i] === ')') { i++; }
+  else {
+    for (;;) {
+      args.push(parseArg());
+      skipWs();
+      const sep = input[i++];
+      if (sep === ')') break;
+      if (sep !== ',') fail();
+    }
+  }
+  skipWs();
+  if (i !== input.length) fail();
+  return { method, args };
+}
+
 function resolveLocator(page, selector) {
   const normalized = selector.trim();
   if (MALFORMED_PAGE_LOCATOR_PREFIX.test(normalized)) {
@@ -54,11 +147,12 @@ function resolveLocator(page, selector) {
   }
 
   if (normalized.startsWith('page.')) {
-    if (!isSafeLocator(normalized)) {
+    const { method, args } = parseLocatorCall(normalized);
+    const fn = page[method];
+    if (typeof fn !== 'function') {
       throw new Error(`Unsafe locator rejected: "${normalized.slice(0, 50)}"`);
     }
-    const expression = normalized.slice('page.'.length);
-    return eval(`page.${expression}`);
+    return fn.apply(page, args);
   }
 
   return page.locator(normalized);
@@ -68,23 +162,32 @@ function hasUnresolvedVariables(value) {
   return typeof value === 'string' && value.includes('{{');
 }
 
+// Mirror of backend/src/utils/runtime-url.ts — keep the scheme allowlist in sync.
+const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'data:']);
+
 function resolveBrowserUrl(rawUrl) {
-  const internalUrl = process.env.FRONTEND_INTERNAL_URL;
-  if (!internalUrl) return rawUrl;
-
+  let parsed;
   try {
-    const parsed = new URL(rawUrl);
-    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
-    if (!isLocalhost) return rawUrl;
+    parsed = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
 
+  if (!ALLOWED_SCHEMES.has(parsed.protocol)) {
+    throw new Error(`Blocked URL scheme "${parsed.protocol}" — only http, https and data URLs are allowed`);
+  }
+
+  const internalUrl = process.env.FRONTEND_INTERNAL_URL;
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (internalUrl && parsed.protocol !== 'data:' && isLocalhost) {
     const internal = new URL(internalUrl);
     internal.pathname = parsed.pathname;
     internal.search = parsed.search;
     internal.hash = parsed.hash;
     return internal.toString();
-  } catch {
-    return rawUrl;
   }
+
+  return rawUrl;
 }
 
 function resolveDeviceConfig(device) {

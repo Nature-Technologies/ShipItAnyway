@@ -5,6 +5,7 @@ import { CreateTestSchema, StepSchema, UpdateTestSchema } from '../schemas/test.
 import { runValidationInSubprocess } from '../services/validation-runner';
 import { getAvailableDevices } from '../utils/devices';
 import { getAuthUser, getProjectAccessStatusCode, requireScope } from '../utils/project-access';
+import { signedQuery } from '../utils/signed-url';
 
 const urlOrTemplate = z.string().refine((value) => {
   if (value.includes('{{')) return true;
@@ -108,6 +109,19 @@ export async function testRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: result.error.flatten() });
     }
 
+    const existing = await prisma.test.findUnique({
+      where: { id: req.params.id },
+      select: { projectId: true }
+    });
+    if (!existing) return reply.status(404).send({ error: 'Test not found' });
+
+    const { userId } = getAuthUser(req);
+    try {
+      await requireScope(existing.projectId, userId, 'checks_edit');
+    } catch (error) {
+      return reply.status(getProjectAccessStatusCode(error)).send({ error: error instanceof Error ? error.message : 'Forbidden' });
+    }
+
     try {
       const test = await prisma.test.update({
         where: { id: req.params.id },
@@ -156,6 +170,10 @@ export async function testRoutes(fastify: FastifyInstance) {
 
     try {
       const report = runValidationInSubprocess(result.data.url, result.data.steps, result.data.device);
+      // Sign the trace URL so the viewer can load it (static /api/traces now requires a signature).
+      if (report.tracePath) {
+        report.tracePath = `${report.tracePath}${signedQuery(`/api/traces/${report.tracePath}`)}`;
+      }
       return report;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Validation failed';
