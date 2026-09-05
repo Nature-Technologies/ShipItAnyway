@@ -86,8 +86,23 @@ fs.mkdirSync(screenshotsDir, { recursive: true });
 fs.mkdirSync(tracesDir, { recursive: true });
 fs.mkdirSync(fixturesDir, { recursive: true });
 
+// Rate limiting keys on req.ip. Behind a reverse proxy, req.ip is the proxy unless trustProxy is
+// set — but trusting X-Forwarded-* blindly lets clients spoof it. So default OFF and let the deploy
+// opt in with the exact hop count / trusted CIDR via TRUST_PROXY (e.g. "1", "true", "10.0.0.0/8").
+function parseTrustProxy(): boolean | number | string {
+  const v = process.env.TRUST_PROXY;
+  if (!v) return false;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : v;
+}
+
 async function start() {
-  const fastify = Fastify({ logger: true });
+  // `as` cast: Fastify accepts a numeric hop count for trustProxy at runtime (proxy-addr), but its
+  // type omits `number`; the cast keeps hop-count support without loosening anything else.
+  const serverOptions = { logger: true, trustProxy: parseTrustProxy() } as import('fastify').FastifyServerOptions;
+  const fastify = Fastify(serverOptions);
   const port = Number(process.env.BACKEND_PORT) || 3000;
   const frontendOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:5173',
