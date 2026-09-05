@@ -33,6 +33,8 @@ CMD sh -c "cd backend && npx prisma migrate deploy && npx prisma db seed && npx 
 
 # ── prod target (default: last stage): compile then run the built JS. ──────────────
 FROM base AS prod
+# Default to production behavior even if compose doesn't set it (dev-only CORS/CSP off, etc.).
+ENV NODE_ENV=production
 RUN cd backend && npx tsc -p tsconfig.json && npx tsc-alias -p tsconfig.json
 EXPOSE 3000
 # TypeScript output lives under dist/src because the backend tsconfig compiles from src/.
