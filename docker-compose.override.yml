@@ -79,8 +79,9 @@ services:
       context: .
       dockerfile: mcp-server/Dockerfile
     restart: unless-stopped
+    # MCP HTTP endpoint: loopback-only by default (front with the reverse proxy for remote agents).
     ports:
-      - "${MCP_HOST_PORT:-3100}:3100"
+      - "${HOST_BIND:-127.0.0.1}:${MCP_HOST_PORT:-3100}:3100"
     environment:
       BACKEND_URL: http://backend:3000
       MCP_PORT: "3100"

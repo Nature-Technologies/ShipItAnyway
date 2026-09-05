@@ -8,7 +8,8 @@ COPY backend/package.json ./backend/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --filter backend --ignore-scripts
 
 COPY backend/ ./backend/
-COPY .env.example .env
+# Do NOT bake any .env into the image — secrets/config come from the runtime environment
+# (docker-compose env / env_file). Baking .env.example shipped known-weak defaults.
 
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/playwright_testing
 ENV PLAYWRIGHT_BROWSERS_PATH=0

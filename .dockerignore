@@ -8,3 +8,6 @@ backend/screenshots
 backend/traces
 .git
 .DS_Store
+.env
+**/.env
+!.env.example
