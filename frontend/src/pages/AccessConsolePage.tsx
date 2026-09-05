@@ -12,7 +12,7 @@ import {
   getTeams, getTeam, createTeam, updateTeam, deleteTeam,
   addTeamMember, removeTeamMember, attachTeamToProject, detachTeamFromProject,
   getProjects,
-  listApiTokens, createApiToken, revokeApiToken,
+  listApiTokens, createApiToken, revokeApiToken, getApiTokenScopes,
   listCiDeliveries, resendCiDelivery
 } from '../api/client';
 import { qk } from '../lib/queryKeys';
@@ -55,6 +55,7 @@ export default function AccessConsolePage() {
   const [tokenModalOpen, setTokenModalOpen] = useState(false);
   const [tokenName, setTokenName] = useState('');
   const [tokenUserId, setTokenUserId] = useState('');
+  const [tokenScopes, setTokenScopes] = useState<string[]>([]);
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
 
   // Teams
@@ -113,6 +114,12 @@ export default function AccessConsolePage() {
     enabled: isSuperadmin
   });
   const apiTokens = apiTokensQuery.data ?? [];
+  const tokenScopesQuery = useQuery({
+    queryKey: ['api-token-scopes'],
+    queryFn: getApiTokenScopes,
+    enabled: isSuperadmin
+  });
+  const availableScopes = tokenScopesQuery.data ?? [];
 
   // ponytail: full user list for token user picker; add server search if roster grows beyond 1000
   const tokenPickerQuery = useQuery({
@@ -186,12 +193,13 @@ export default function AccessConsolePage() {
   });
 
   const createTokenMutation = useMutation({
-    mutationFn: () => createApiToken({ name: tokenName.trim(), userId: tokenUserId }),
+    mutationFn: () => createApiToken({ name: tokenName.trim(), userId: tokenUserId, scopes: tokenScopes }),
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: qk.apiTokens });
       setNewlyCreatedToken(data.token);
       setTokenName('');
       setTokenUserId('');
+      setTokenScopes([]);
     },
     onError: () => { void message.error('Failed to create token'); }
   });
@@ -405,6 +413,11 @@ export default function AccessConsolePage() {
             { title: 'Name', dataIndex: 'name', render: (n: string) => <Text strong>{n}</Text> },
             { title: 'User', dataIndex: 'userEmail', render: (e?: string) => e ?? '—' },
             { title: 'Token', dataIndex: 'prefix', render: (t: string) => <Text code>{t}</Text> },
+            { title: 'Scopes', dataIndex: 'scopes', render: (s?: string[]) => (
+              s && s.length > 0
+                ? <Space size={[4, 4]} wrap>{s.map((sc) => <Tag key={sc}>{sc}</Tag>)}</Space>
+                : <Tag color="orange">full access</Tag>
+            ) },
             { title: 'Expires', dataIndex: 'expiresAt', render: (d?: string | null) => d ? new Date(d).toLocaleDateString() : 'Never' },
             { title: 'Last used', dataIndex: 'lastUsedAt', render: (d?: string | null) => d ? new Date(d).toLocaleDateString() : 'Never' },
             { title: 'Actions', render: (_: unknown, row: ApiToken) => (
@@ -513,6 +526,21 @@ export default function AccessConsolePage() {
                 options={tokenPickerUsers.map((u) => ({ label: u.email, value: u.id }))}
                 onChange={(id) => setTokenUserId(id)}
               />
+            </div>
+            <div>
+              <Text type="secondary">Scopes</Text>
+              <Select
+                mode="multiple" allowClear showSearch optionFilterProp="label"
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="Leave empty for full access (all of the user's scopes)"
+                loading={tokenScopesQuery.isLoading}
+                value={tokenScopes}
+                options={availableScopes.map((s) => ({ label: s, value: s }))}
+                onChange={(vals) => setTokenScopes(vals)}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Empty = unrestricted. Otherwise the token is limited to these scopes (intersected with the user's own).
+              </Text>
             </div>
           </Space>
         )}

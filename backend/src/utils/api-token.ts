@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { Scope } from '@prisma/client';
 import prisma from '../prisma';
 
 export function hashApiToken(raw: string): string {
@@ -7,7 +8,7 @@ export function hashApiToken(raw: string): string {
 
 export async function resolveApiToken(
   authHeader?: string
-): Promise<{ userId: string; email: string } | null> {
+): Promise<{ userId: string; email: string; scopes: Scope[] } | null> {
   if (!authHeader?.startsWith('Bearer ')) return null;
   const raw = authHeader.slice('Bearer '.length).trim();
   if (!raw.startsWith('sia_')) return null;
@@ -23,5 +24,5 @@ export async function resolveApiToken(
     .update({ where: { id: token.id }, data: { lastUsedAt: new Date() } })
     .catch(() => undefined);
 
-  return { userId: token.user.id, email: token.user.email };
+  return { userId: token.user.id, email: token.user.email, scopes: token.scopes };
 }

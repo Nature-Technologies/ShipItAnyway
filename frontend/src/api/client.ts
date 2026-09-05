@@ -415,10 +415,12 @@ export const getReportSends = (id: string) =>
 // API tokens (superadmin)
 export const listApiTokens = () =>
   api.get<ApiToken[]>('/api-tokens').then((r) => r.data);
-export const createApiToken = (body: { name: string; userId: string; expiresAt?: string }) =>
+export const createApiToken = (body: { name: string; userId: string; expiresAt?: string; scopes?: string[] }) =>
   api.post<ApiTokenCreated>('/api-tokens', body).then((r) => r.data);
 export const revokeApiToken = (id: string) =>
   api.delete(`/api-tokens/${id}`).then(() => undefined);
+export const getApiTokenScopes = () =>
+  api.get<{ scopes: string[] }>('/api-tokens/scopes').then((r) => r.data.scopes);
 
 // Project GitHub CI config
 export const getProjectGithubConfig = (projectId: string) =>

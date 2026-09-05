@@ -31,6 +31,7 @@ import { testRoutes } from './routes/tests';
 import { schedulerService } from './services/scheduler';
 import { resolveApiToken } from './utils/api-token';
 import { verifyArtifactSig } from './utils/signed-url';
+import './utils/request-context'; // fastify request augmentation (req.tokenScopes)
 import { fixtureRoutes } from './routes/fixtures';
 import { groupRoutes } from './routes/groups';
 import { userRoutes } from './routes/users';
@@ -179,7 +180,11 @@ async function start() {
     try {
       const viaToken = await resolveApiToken(req.headers.authorization);
       if (viaToken) {
-        req.user = viaToken;
+        req.user = { userId: viaToken.userId, email: viaToken.email };
+        // A non-empty scope list restricts this token to a subset of the user's authority.
+        // Stashed on req here; bound to the handler's async context by getAuthUser (enterWith in a
+        // hook does not propagate into the fastify handler's context).
+        if (viaToken.scopes.length > 0) req.tokenScopes = new Set(viaToken.scopes);
         return;
       }
       await req.jwtVerify();

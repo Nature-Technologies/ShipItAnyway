@@ -53,6 +53,7 @@ model ApiToken {
   name       String
   tokenHash  String    @unique
   prefix     String
+  scopes     Scope[]   @default([])
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   lastUsedAt DateTime?
